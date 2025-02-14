@@ -1,0 +1,15 @@
+tmp
+build
+__MACOSX
+__pycache__
+.vscode
+
+tmp*
+*.dat
+*.so
+*.txt
+!CMakeLists.txt
+*.npy
+*.npz
+*.h5
+*.chk
