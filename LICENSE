@@ -15,7 +15,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 ByteQC includes code adapted from PySCF (https://github.com/pyscf/pyscf) and
 GPU4PySCF (https://github.com/bytedance/gpu4pyscf), which are licensed under
-the Apache License 2.0. The original copytight:
+the Apache License 2.0. The original copyright:
     Copyright 2014-2020 The GPU4PySCF/PySCF Developers. All Rights Reserved.
 
     Licensed under the Apache License, Version 2.0 (the "License");
@@ -31,7 +31,7 @@ the Apache License 2.0. The original copytight:
     limitations under the License.
 
 ByteQC also includes code adapted from CuPy (https://github.com/cupy/cupy/),
-which are licensed under the MIT license. The original copytight:
+which are licensed under the MIT license. The original copyright:
     Copyright (c) 2015 Preferred Infrastructure, Inc.
     Copyright (c) 2015 Preferred Networks, Inc.
 
