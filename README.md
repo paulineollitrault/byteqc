@@ -49,9 +49,18 @@ ByteQC
 ├── README.md
 └── setup.py      # installation script
 ```
+
 The `lib` subpackage is exported directly when importing ByteQC. The usage of each module is described in the README.md file in the corresponding directory.
 
-## References
+## Citations
 
 ```latex
+@Misc{Huang2024,
+  author    = {Huang, Zigeng and Guo, Zhen and Cao, Changsu and Pham, Hung Q. and Wen, Xuelan and Booth, George H. and Chen, Ji and Lv, Dingshun},
+  title     = {Advancing Surface Chemistry with Large-Scale Ab-Initio Quantum Many-Body Simulations},
+  year      = {2024},
+  doi       = {10.48550/arXiv.2412.18553},
+  keywords  = {Materials Science (cond-mat.mtrl-sci), Chemical Physics (physics.chem-ph), FOS: Physical sciences, FOS: Physical sciences},
+  publisher = {arXiv},
+}
 ```
