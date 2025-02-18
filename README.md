@@ -19,7 +19,7 @@ This package incorporates parts of its code adapted from several external open-s
 
 Requirement:
 
-- cupy >= 13.4.0
+- cupy (master branch in github)
 - nvmath-python
 - h5py
 - mpi4py
@@ -57,7 +57,7 @@ The `lib` subpackage is exported directly when importing ByteQC. The usage of ea
 ```latex
 @Misc{Huang2024,
   author    = {Huang, Zigeng and Guo, Zhen and Cao, Changsu and Pham, Hung Q. and Wen, Xuelan and Booth, George H. and Chen, Ji and Lv, Dingshun},
-  title     = {Advancing Surface Chemistry with Large-Scale Ab-Initio Quantum Many-Body Simulations},
+  title     = {Advancing surface chemistry with large-scale ab-initio quantum many-body simulations},
   year      = {2024},
   doi       = {10.48550/arXiv.2412.18553},
   keywords  = {Materials Science (cond-mat.mtrl-sci), Chemical Physics (physics.chem-ph), FOS: Physical sciences, FOS: Physical sciences},
