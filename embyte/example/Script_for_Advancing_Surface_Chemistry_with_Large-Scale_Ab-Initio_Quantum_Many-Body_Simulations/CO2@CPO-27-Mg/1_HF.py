@@ -90,6 +90,7 @@ if __name__ == '__main__':
     mol.output = logfile
     mol.build()
     mf = scf.RHF(mol)
+    mf.max_memory = 600e3
     mf.chkfile = chkfile
     mf.diis_space = 12
 

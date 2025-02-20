@@ -645,8 +645,8 @@ class SIE_kernel:
                                     threshold_list = self.threshold
 
                                 th_tmp = threshold_list[th_ind_tmp]
-                                if type(th_tmp) is float:
-                                    th_tmp = round(numpy.log10(th_tmp), 1)
+                                th_tmp = 'occ_1e%.1f_vir_1e%.1f' % \
+                                    (numpy.log10(th_tmp[0]), numpy.log10(th_tmp[1]))
 
                                 filepath_clu_i_main = self.PR.filepath + \
                                     '/Cluster/Cluster_%s/th_%s' % (

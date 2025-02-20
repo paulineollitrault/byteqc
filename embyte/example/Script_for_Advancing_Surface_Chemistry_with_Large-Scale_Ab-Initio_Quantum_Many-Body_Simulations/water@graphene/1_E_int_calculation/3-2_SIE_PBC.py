@@ -202,7 +202,7 @@ if __name__ == '__main__':
     basis = 'ccecp-cc-pVDZ'
     # basis = 'ccecp-cc-pVTZ'
 
-    mol_type = 0
+    mol_type = 2
     # mol_type = 2 for water + graphene
     # mol_type = 1 for ghost-water + graphene
     # mol_type = 0 for water + ghost-graphene

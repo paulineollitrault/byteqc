@@ -706,7 +706,7 @@ def _add_ovvv(mycc, t1, t2, eris, fvv, t1new, t2new):
         nocc, int(memory / itemsize / (nvir * nmax**2 + nocc * nmax * nvir)))
     if blk1 < 2:
         blk1 = 2
-        blk2 = min(nvir, int(memory / itemsize / (nmax**2 + nocc * nvir)))
+        blk2 = min(nvir, int(memory / itemsize / (nmax**2 + nocc * nmax)))
         log.info(
             'nocc(%d) and nvir(%d) is sliced to %d and %d with memory %.2fGB'
             % (nocc, nvir, blk1, blk2, memory / 1e9))
@@ -716,7 +716,7 @@ def _add_ovvv(mycc, t1, t2, eris, fvv, t1new, t2new):
             nocc, blk1, memory / 1e9))
 
     buf1 = mycc.pool.empty((blk1, nmax, nmax, blk2), 'f8')
-    buf2 = mycc.pool.empty((blk1, nocc, nvir, blk2), 'f8')
+    buf2 = mycc.pool.empty((blk1, nocc, nmax, blk2), 'f8')
     for p0, p1 in prange(0, nocc, blk1):
         for q0, q1 in prange(0, nvir, blk2):
             ovvv = eris.ovvv.getitem(numpy.s_[p0:p1, :, :, q0:q1], buf=buf1)
