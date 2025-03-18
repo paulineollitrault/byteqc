@@ -271,16 +271,16 @@ def _grad_intermediates(mol, path, vslices, oslices, auxslices,
     tau_d = Mg.mapgpu(
         lambda: cupy.empty(
             (max(
-                oblk ** 2 *
-                nvir ** 2,
+                oblk ** 2
+                * nvir ** 2,
                 naux ** 2)),
             'f8'))
     rdm1_vir_d = Mg.mapgpu(lambda: cupy.zeros((nvir, nvir), 'f8'))
     t2s = Mg.mapgpu(
         lambda: cupy.empty(
             (max(
-                oblk ** 2 *
-                nvir ** 2,
+                oblk ** 2
+                * nvir ** 2,
                 naux ** 2)),
             'f8'))
 

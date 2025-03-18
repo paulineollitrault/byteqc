@@ -295,7 +295,7 @@ def cderi_ovL_outcore(mol, auxmol, coeff_o, coeff_v,
 
         waits[gid] = cderi.setitem(numpy.s_[so], cderi_h, pool=pools_w[gid])
         log.timer('cderi_ovL_outcore nao:[%d:%d]/%d on GPU%s' %
-                         (so.start, so.stop, nocc, Mg.gpus[gid]), *time1)
+                  (so.start, so.stop, nocc, Mg.gpus[gid]), *time1)
 
     Mg.map(get_cderi, oslices)
     for wait in waits:
@@ -427,7 +427,7 @@ def mp2_get_corr(mol, path, oslices, nvir, nocc, naux, e_mo, log=None, with_rdm1
                 tau = None
 
         log.timer('mp2_kernel nao:[%d:%d]/%d on GPU%s' %
-                         (so.start, so.stop, nocc, Mg.gpus[gid]), *time0)
+                  (so.start, so.stop, nocc, Mg.gpus[gid]), *time0)
 
         return e_corr
 
@@ -479,6 +479,7 @@ def mp2_get_occ_1rdm(path, vslices, nvir, nocc, naux, e_mo, log):
              for _ in range(ngpu)]
     pools = [Pool(processes=lib.NumFileProcess) for _ in range(ngpu)]
     log.timer('mp2_get_occ_1rdm prepare', *time0)
+
     def MP2_occ_1rdm_kernel(v_ind):
         gid = Mg.getgid()
         time0 = logger.process_clock(), logger.perf_counter()
@@ -539,7 +540,7 @@ def mp2_get_occ_1rdm(path, vslices, nvir, nocc, naux, e_mo, log):
                         alpha=-2.0, beta=1.0)
 
         log.timer('mp2_get_occ_1rdm nao:[%d:%d]/%d on GPU%s' %
-                         (sv.start, sv.stop, nvir, Mg.gpus[gid]), *time0)
+                  (sv.start, sv.stop, nvir, Mg.gpus[gid]), *time0)
 
     Mg.map(MP2_occ_1rdm_kernel, range(len(vslices)))
     rdm1_occ_list = Mg.map(cupy.asnumpy, rdm1_occ_d)
