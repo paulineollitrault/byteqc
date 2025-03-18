@@ -22,7 +22,7 @@ from byteqc.lib import Mg
 
 inds = numpy.asarray([[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1],
                       [2, 1, 0]])
-modes = ["nijk", "nikj", "njik", "nkij", "njki", "nkji"]
+modes = numpy.asarray(["nijk", "nikj", "njik", "nkij", "njki", "nkji"])
 
 
 def r3(input, output):
@@ -273,45 +273,63 @@ def kernel(mycc, eris, t1=None, t2=None, projector=None):
         (blksize, nocc, nocc, nocc), 'f8'), buf)
     bufleft = Mg.mapgpu(lambda buf: buf.left(), buf)
 
-    def add_w(abc, w, mode):
+    def add_w(abc):
         igpu = Mg.getgid()
-        a, b, c = abc
-        n = len(a)
+        n = len(abc[0])
         tmpbuf = lib.ArrayBuffer(bufleft[igpu])
         tmpbuf.tag()
-        t2s = tmpbuf.empty((n, nocc, nocc, nvir), 'f8')
-        take010_t2(t2s, c, t2, tmpbuf)
-        eri_ovvv = tmpbuf.empty((n, nocc, nvir), 'f8')
-        if ovvv[igpu].l2 is None:
-            take0110(nocc, nvir, nvir, nvir, a, b, ovvv[igpu], eri_ovvv)
-        else:
-            naux = ovvv[igpu].l1.shape[0]
-            lov = tmpbuf.empty((n, naux, nocc), 'f8')
-            lvv = tmpbuf.empty((n, naux, nvir), 'f8')
-            take01(naux * nocc, nvir, a, ovvv[igpu].l1, lov)
-            take010(naux, nvir, nvir, b, ovvv[igpu].l2, lvv)
-            lib.contraction('nlo', lov, 'nlv', lvv, 'nov', eri_ovvv)
-        if w is None:
-            w = lib.contraction('nif', eri_ovvv, 'nkjf',
-                                t2s, mode, buf=bufw[igpu])
-        else:
-            w = lib.contraction('nif', eri_ovvv, 'nkjf', t2s, mode, w,
-                                beta=1.0)
+        w = None
 
-        tmpbuf.loadtag()
-        t2ss = tmpbuf.empty((n, nocc, nocc), 'f8')
-        take011_t2(t2ss, c, b, t2, tmpbuf)
-        eri_ovoo = tmpbuf.empty((n, nocc, nocc, nocc), 'f8')
-        if ovoo[igpu].l2 is None:
-            take010(nocc, nvir, nocc * nocc, a, ovoo[igpu], eri_ovoo)
-        else:
-            naux = ovoo[igpu].l1.shape[0]
-            lov = tmpbuf.empty((n, naux, nocc), 'f8')
-            take01(naux * nocc, nvir, a, ovoo[igpu].l1, lov)
-            lib.contraction('nlo', lov, 'lpq', ovoo[igpu].l2, 'nopq', eri_ovoo)
+        perm = [3, 5, 1, 4, 0, 2]
+        _inds = inds[perm]
+        _modes = modes[perm]
+        for i in range(6):
+            a, b, c = [abc[i] for i in _inds[i]]
+            mode = _modes[i]
+            tmpbuf.loadtag()
+            if i % 2 == 0:
+                t2s = tmpbuf.empty((n, nocc, nocc, nvir), 'f8')
+                take010_t2(t2s, c, t2, tmpbuf)
+                tmpbuf.tag('t2')
+            tmpbuf.loadtag('t2')
+            eri_ovvv = tmpbuf.empty((n, nocc, nvir), 'f8')
+            if ovvv[igpu].l2 is None:
+                take0110(nocc, nvir, nvir, nvir, a, b, ovvv[igpu], eri_ovvv)
+            else:
+                naux = ovvv[igpu].l1.shape[0]
+                lov = tmpbuf.empty((n, naux, nocc), 'f8')
+                lvv = tmpbuf.empty((n, naux, nvir), 'f8')
+                take01(naux * nocc, nvir, a, ovvv[igpu].l1, lov)
+                take010(naux, nvir, nvir, b, ovvv[igpu].l2, lvv)
+                lib.contraction('nlo', lov, 'nlv', lvv, 'nov', eri_ovvv)
+            if w is None:
+                w = lib.contraction('nif', eri_ovvv, 'nkjf',
+                                    t2s, mode, buf=bufw[igpu])
+            else:
+                w = lib.contraction('nif', eri_ovvv, 'nkjf', t2s, mode, w,
+                                    beta=1.0)
 
-        lib.contraction('nijm', eri_ovoo, 'nkm', t2ss, mode, w,
-                        beta=1.0, alpha=-1.0)
+        for i in range(6):
+            a, b, c = [abc[i] for i in inds[i]]
+            mode = modes[i]
+            tmpbuf.loadtag()
+            if i % 2 == 0:
+                eri_ovoo = tmpbuf.empty((n, nocc, nocc, nocc), 'f8')
+                if ovoo[igpu].l2 is None:
+                    take010(nocc, nvir, nocc * nocc, a, ovoo[igpu], eri_ovoo)
+                else:
+                    naux = ovoo[igpu].l1.shape[0]
+                    lov = tmpbuf.empty((n, naux, nocc), 'f8')
+                    take01(naux * nocc, nvir, a, ovoo[igpu].l1, lov)
+                    lib.contraction('nlo', lov, 'lpq',
+                                    ovoo[igpu].l2, 'nopq', eri_ovoo)
+                tmpbuf.tag('ovoo')
+            tmpbuf.loadtag('ovoo')
+            t2ss = tmpbuf.empty((n, nocc, nocc), 'f8')
+            take011_t2(t2ss, c, b, t2, tmpbuf)
+
+            lib.contraction('nijm', eri_ovoo, 'nkm', t2ss, mode, w,
+                            beta=1.0, alpha=-1.0)
         return w
 
     def r3_d3_e(abc, wr6, et):
@@ -365,10 +383,7 @@ def kernel(mycc, eris, t1=None, t2=None, projector=None):
         n = p1 - p0
         gen_abc(p0, a[igpu][:n], b[igpu][:n], c[igpu][:n])
         abc = [a[igpu][:n], b[igpu][:n], c[igpu][:n]]
-        wr6 = None
-        for (ind, mode) in zip(inds, modes):
-            wr6 = add_w([abc[i] for i in ind], wr6, mode)
-
+        wr6 = add_w(abc)
         r3_d3_e(abc, wr6, et)
 
         tmpbuf = lib.ArrayBuffer(bufleft[igpu])
