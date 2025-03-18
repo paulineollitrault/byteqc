@@ -13,7 +13,6 @@ This package incorporates parts of its code adapted from several external open-s
 * https://github.com/sunqm/libcint
 * https://github.com/cupy/cupy
 * https://github.com/BoothGroup/Vayesta
-* https://github.com/gkclab/libdmet_preview
 
 ## Installation
 

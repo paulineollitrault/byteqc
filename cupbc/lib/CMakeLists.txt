@@ -1,9 +1,8 @@
 # Copyright (c) 2024 Bytedance Ltd. and/or its affiliates
 # This file is part of ByteQC.
 #
-# ByteQC includes code adapted from PySCF
-# (https://github.com/pyscf/pyscf), which is licensed under the Apache License
-# 2.0. The original copyright:
+# ByteQC includes code adapted from PySCF (https://github.com/pyscf/pyscf),
+# which is licensed under the Apache License 2.0. The original copyright:
 #     Copyright 2014-2020 The PySCF Developers. All Rights Reserved.
 #
 #     Licensed under the Apache License, Version 2.0 (the "License");
