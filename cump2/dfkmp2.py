@@ -200,7 +200,7 @@ def cderi_ovL_gamma_point_outcore(mol, auxmol, eri_path, coeff_o, coeff_v,
     read_pools = [Pool(processes=lib.NumFileProcess) for _ in range(ngpu)]
     write_pools = [Pool(processes=lib.NumFileProcess) for _ in range(ngpu)]
     write_waits = [None] * ngpu
-    time0 = log.timer_debug1("cderi_ovL_gamma_point_outcore prepare", *time0)
+    time0 = log.timer("cderi_ovL_gamma_point_outcore prepare", *time0)
 
     def eri_gen_OVL(aux_id_list):
         gid = Mg.getgid()
@@ -300,7 +300,7 @@ def cderi_ovL_gamma_point_outcore(mol, auxmol, eri_path, coeff_o, coeff_v,
             tmp = cderi_d = None
             write_waits[gid] = cderi.setitem(
                 numpy.s_[:, :, sL], cderi_h, pool=write_pools[gid])
-            log.timer_debug1(
+            log.timer(
                 'cderi_ovL_gamma_point_outcore aux_id:%d/%d on GPU%d' % (
                     sL_ind + 1, len(Lslices), Mg.gpus[gid]), *time1)
 
@@ -314,7 +314,7 @@ def cderi_ovL_gamma_point_outcore(mol, auxmol, eri_path, coeff_o, coeff_v,
             for w in wait:
                 w.wait()
 
-    time0 = log.timer_debug1("cderi_ovL_gamma_point_outcore is done", *time0)
+    time0 = log.timer("cderi_ovL_gamma_point_outcore is done", *time0)
 
     for gid in range(ngpu):
         read_pools[gid].close()

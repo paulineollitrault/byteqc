@@ -317,7 +317,10 @@ class SIE_kernel:
                                                                   oei=self.oei_file,
                                                                   local_orb_path=self.local_orb_path,
                                                                   )
-                del low_level_info.mol_full.stdout
+                try:
+                    del low_level_info.mol_full.stdout
+                except:
+                    pass
                 del mean_field
                 self.low_level_info = low_level_info
 

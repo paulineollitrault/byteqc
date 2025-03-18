@@ -18,7 +18,7 @@ import h5py
 import os
 import time
 from byteqc import lib
-from byteqc.embyte.Localization import iao_localization
+from byteqc.embyte.Localization import iao_pao_localization
 from byteqc.embyte.Tools.tool_lib import fix_orbital_sign
 from functools import reduce
 import numpy
@@ -89,7 +89,7 @@ class low_level_info:
             self.AOLO = cupy.asarray(numpy.load(local_orb_path))
         else:
             logger.info("----------- Using IAO+PAO localizer")
-            self.AOLO = fix_orbital_sign(iao_localization(mol, mf))
+            self.AOLO = fix_orbital_sign(iao_pao_localization(mol, mf))
 
         logger.info(
             '----------- localization_function time cost is %s' %
@@ -172,4 +172,8 @@ class low_level_info:
 
         self.MOLO = self.MOLO.get()
 
-        del mf, self.auxmol.stdout
+        del mf
+        try:
+            del self.auxmol.stdout
+        except:
+            pass

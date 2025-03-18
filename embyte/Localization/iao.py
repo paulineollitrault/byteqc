@@ -1,206 +1,158 @@
 # Copyright (c) 2024 Bytedance Ltd. and/or its affiliates
 # This file is part of ByteQC.
 #
-# ByteQC includes code adapted from libDMET (https://github.com/gkclab/libdmet_preview)
-# which are licensed under the GPL-3.0 license.
-# The original copyright:
-#     A library of density matrix embedding theory (DMET) for lattice models and realistic solids.
-#     Copyright (C) 2022 The libDMET Developers.
-
-#     This program is free software: you can redistribute it and/or modify
-#     it under the terms of the GNU General Public License as published by
-#     the Free Software Foundation, either version 3 of the License, or
-#     (at your option) any later version.
-
-#     This program is distributed in the hope that it will be useful,
-#     but WITHOUT ANY WARRANTY; without even the implied warranty of
-#     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#     GNU General Public License for more details.
-
-#     You should have received a copy of the GNU General Public License
-#     along with this program.  If not, see <https://www.gnu.org/licenses/>.
+# ByteQC is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# ByteQC is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 from functools import reduce
 from pyscf import gto
+from pyscf.data.elements import is_ghost_atom
+from pyscf.lo.iao import reference_mol
+from pyscf.pbc import gto as pbcgto
 import numpy
 import cupy
 cupy.cuda.set_pinned_memory_allocator(None)
 
 
-def mdot(*args):
-    """
-    Reduced matrix dot.
-    """
-    return reduce(cupy.dot, args)
+def get_vec_lowdin(c, s=1, tol=1e-14):
 
+    e, v = cupy.linalg.eigh(reduce(cupy.dot, (c.T, s, c)))
+    ind = e > tol
+    ct = cupy.dot(v[:, ind] / (e[ind] ** 0.5), v[:, ind].T)
+    lo_lowdin = cupy.dot(c, ct)
 
-def orth_cano(c, s, tol=1e-12):
-
-    return cupy.dot(c, _cano(mdot(c.T, s, c), tol=tol))
-
-
-def _cano(s, tol=1e-12):
-    e, v = cupy.linalg.eigh(s)
-    idx = e > tol
-    return v[:, idx] / numpy.sqrt(e[idx])
-
-
-def _vec_lowdin(c, s=1):
-    """
-    Lowdin orth for the metric c.T*s*c and get x, then c*x
-    """
-    return cupy.dot(c, _lowdin(mdot(c.T, s, c)))
-
-
-def _lowdin(s, tol=1e-14):
-    """
-    New basis is |mu> c^{lowdin}_{mu i}
-    """
-    e, v = cupy.linalg.eigh(s)
-    idx = e > tol
-    return cupy.dot(v[:, idx] / cupy.sqrt(e[idx]), v[:, idx].T)
-
-
-def is_ghost_atom(symb_or_chg):
-    if isinstance(symb_or_chg, (int, numpy.integer)):
-        return symb_or_chg == 0
-    elif 'GHOST' in symb_or_chg.upper():
-        return True
-    else:
-        return symb_or_chg[0] == 'X' and symb_or_chg[:2].upper() != 'XE'
-
-
-def reference_mol(mol, minao='minao', tol=1e-12):
-    '''Create a molecule which uses reference minimal basis'''
-    pmol = mol.copy()
-    atoms = [atom for atom in gto.format_atom(pmol.atom, unit=1)]
-    # remove ghost atoms
-    pmol.atom = [atom for atom in atoms if not is_ghost_atom(atom[0])]
-    if len(pmol.atom) != len(atoms):
-        print(mol, 'Ghost atoms found in system. '
-              'Current IAO does not support ghost atoms. '
-              'They are removed from IAO reference basis.')
-    if getattr(pmol, 'rcut', None) is not None:
-        pmol.rcut = None
-    pmol.build(False, False, basis=minao)
-    return pmol
+    return lo_lowdin
 
 
 def reference_mol_get_mask(mol):
-    '''Create a molecule which uses reference minimal basis'''
-    pmol = mol.copy()
-    atoms = [atom for atom in gto.format_atom(pmol.atom, unit=1)]
-    # remove ghost atoms
+    mol_tmp = mol.copy()
+    atoms = [atom for atom in gto.format_atom(mol_tmp.atom, unit=1)]
     mask = [i for i, atom in enumerate(atoms) if not is_ghost_atom(atom[0])]
-    # mask = numpy.asarray([False] * len(atoms))
 
     return mask
 
 
-def iao_localization(mol, mf, minao='minao', tol=1e-12):
-    '''
-    GPU accelerated IAO+PAO localization.
-    '''
+def iao_pao_localization(mol, mf, minao='minao', tol=1e-12):
 
-    orbocc = cupy.asarray(mf.mo_coeff, dtype=cupy.float64)[
-        :, cupy.asarray(mf.mo_occ) > 0]
-    # IAO part
-    pmol = reference_mol(mol, minao)
+    nocc = numpy.where(cupy.asarray(mf.mo_occ) > 0)[0].size
+    aomo_coeff_occ = cupy.asarray(mf.mo_coeff)[:, : nocc]
 
-    if getattr(mol, 'pbc_intor', None):  # cell object has pbc_intor method
-        from pyscf.pbc import gto as pbcgto
-        s1 = cupy.asarray(mol.pbc_intor('int1e_ovlp', hermi=1, kpts=None))
-        s2 = cupy.asarray(pmol.pbc_intor('int1e_ovlp', hermi=1, kpts=None))
-        s12 = cupy.asarray(
+    ref_mol = reference_mol(mol, minao)
+
+    if hasattr(mol, 'pbc_intor'):
+        ao_ovlp = cupy.asarray(mol.pbc_intor('int1e_ovlp',
+                                             hermi=1,
+                                             kpts=None))
+        ref_ao_ovlp = cupy.asarray(ref_mol.pbc_intor('int1e_ovlp',
+                                                     hermi=1,
+                                                     kpts=None))
+        cross_ovlp = cupy.asarray(
             pbcgto.cell.intor_cross(
                 'int1e_ovlp',
                 mol,
-                pmol,
+                ref_mol,
                 kpts=None))
     else:
 
-        s1 = cupy.asarray(mol.intor_symmetric('int1e_ovlp'), dtype=cupy.float64)
-        s2 = cupy.asarray(pmol.intor_symmetric('int1e_ovlp'), dtype=cupy.float64)
-        s12 = cupy.asarray(
+        ao_ovlp = cupy.asarray(mol.intor_symmetric('int1e_ovlp'))
+        ref_ao_ovlp = cupy.asarray(ref_mol.intor_symmetric('int1e_ovlp'))
+        cross_ovlp = cupy.asarray(
             gto.mole.intor_cross(
                 'int1e_ovlp',
                 mol,
-                pmol),
+                ref_mol),
             dtype=cupy.float64)
 
-    s21 = s12.T
+    ao_ovlp_CD = cupy.linalg.cholesky(ao_ovlp)
+    ref_ao_ovlp_CD = cupy.linalg.cholesky(ref_ao_ovlp)
 
-    s1cd = cupy.linalg.cholesky(s1)
-    s2cd = cupy.linalg.cholesky(s2)
-    p12 = cupy.linalg.solve(s1cd.T, cupy.linalg.solve(s1cd, s12))
+    coeff_inter = cupy.linalg.solve(ref_ao_ovlp_CD.T,
+                                    cupy.linalg.solve(ref_ao_ovlp_CD,
+                                                      cupy.dot(cross_ovlp.T, aomo_coeff_occ)))
+    coeff_inter = cupy.linalg.solve(ao_ovlp_CD.T,
+                                    cupy.linalg.solve(ao_ovlp_CD,
+                                                      cupy.dot(cross_ovlp, coeff_inter)))
 
-    C = orbocc
-    ctild = cupy.linalg.solve(s2cd.T, cupy.linalg.solve(s2cd, cupy.dot(s21, C)))
-    ctild = cupy.linalg.solve(s1cd.T, cupy.linalg.solve(s1cd, cupy.dot(s12, ctild)))
-    ctild = orth_cano(ctild, s1, tol=tol)
-    ccs1 = mdot(C, C.T, s1)
-    ccs2 = mdot(ctild, ctild.T, s1)
+    e_tmp, v_tmp = cupy.linalg.eigh(reduce(cupy.dot,
+                                           (coeff_inter.T, ao_ovlp, coeff_inter)))
+    ind_s = e_tmp > tol
+    ct = v_tmp[:, ind_s] / (e_tmp[ind_s] ** 0.5)
+    coeff_inter = cupy.dot(coeff_inter, ct)
 
-    c = (p12 + mdot(ccs1, ccs2, p12) * 2 - cupy.dot(ccs1, p12) - cupy.dot(ccs2, p12))
-    s = s1
-    S = s
+    Cocc_ovlp = reduce(cupy.dot, (aomo_coeff_occ, aomo_coeff_occ.T, ao_ovlp))
+    inter_ovlp = reduce(cupy.dot, (coeff_inter, coeff_inter.T, ao_ovlp))
 
-    c_occ = _vec_lowdin(c, S)
-    print('occ shape:', c_occ.shape)
-    if c_occ.shape[0] == c_occ.shape[1]:
-        return c_occ
+    project_t = cupy.linalg.solve(ao_ovlp_CD.T,
+                                  cupy.linalg.solve(ao_ovlp_CD, cross_ovlp))
 
-    C_ao_iao = c_occ
-    S = s
-    B1_labels = numpy.asarray(mol.ao_labels())
-    pmol_tmp = mol.copy()
-    pmol_tmp.basis = minao
-    pmol_tmp.build()
-    B2_labels = numpy.asarray(
-        [r for r in pmol_tmp.ao_labels() if 'GHOST' not in r])
-    notin_B2 = numpy.isin(B1_labels, B2_labels, invert=True)
-    virt_idx = numpy.where(notin_B2)[0].tolist()
-    nB1 = len(B1_labels)
-    nB2 = len(B2_labels)
-    nvirt = len(virt_idx)
-    assert nB2 + nvirt == nB1
+    coeff_iao = (project_t
+                 + reduce(cupy.dot, (Cocc_ovlp, inter_ovlp, project_t)) * 2
+                 - cupy.dot(Cocc_ovlp, project_t)
+                 - cupy.dot(inter_ovlp, project_t))
 
-    CCdS = mdot(C_ao_iao, C_ao_iao.T, S)
+    coeff_iao = get_vec_lowdin(coeff_iao, ao_ovlp)
 
-    c_vir = (cupy.eye(nB1) - CCdS)[:, virt_idx]
-    c_vir = _vec_lowdin(c_vir, s)
-    print('vir shape:', c_vir.shape)
+    if coeff_iao.shape[0] == coeff_iao.shape[1]:
+        # The mol has the same basis size with the IAO reference mol.
+        return coeff_iao
 
-    refer_mol = pmol
+    mol_ao_labels = numpy.asarray(mol.ao_labels())
+    assert mol.nao == len(mol_ao_labels)
+    ref_mol_tmp = mol.copy()
+    ref_mol_tmp.basis = minao
+    ref_mol_tmp.build()
+    iao_labels = numpy.asarray([ao_label for ao_label in
+                                ref_mol_tmp.ao_labels() if 'GHOST' not in ao_label])
+    pao_ind = numpy.where(numpy.isin(mol_ao_labels,
+                                     iao_labels,
+                                     invert=True))[0].tolist()
+    niao = len(iao_labels)
+    npao = len(pao_ind)
+    assert niao + npao == mol.nao
+
+    iao_ovlp = reduce(cupy.dot, (coeff_iao, coeff_iao.T, ao_ovlp))
+
+    coeff_pao = (cupy.eye(mol.nao) - iao_ovlp)[:, pao_ind]
+    coeff_pao = get_vec_lowdin(coeff_pao, ao_ovlp)
 
     mol_atom_orb_num = numpy.array(mol.ao_labels(fmt=False))
     mol_atom_orb_num = numpy.array(mol_atom_orb_num[:, 0], dtype=int)
     mol_atom_orb_num = numpy.bincount(mol_atom_orb_num)
 
-    refer_mol_atom_orb_num = numpy.array(refer_mol.ao_labels(fmt=False))
-    refer_mol_atom_orb_num = numpy.array(refer_mol_atom_orb_num[:, 0], dtype=int)
-    refer_mol_atom_orb_num = numpy.bincount(refer_mol_atom_orb_num)
+    ref_mol_atom_orb_num = numpy.array(ref_mol.ao_labels(fmt=False))
+    ref_mol_atom_orb_num = numpy.array(ref_mol_atom_orb_num[:, 0], dtype=int)
+    ref_mol_atom_orb_num = numpy.bincount(ref_mol_atom_orb_num)
 
-    if refer_mol_atom_orb_num.shape != mol_atom_orb_num.shape:
-        refer_mol_atom_orb_num_temp = numpy.asarray(
+    if ref_mol_atom_orb_num.shape != mol_atom_orb_num.shape:
+        ref_mol_atom_orb_num_temp = numpy.asarray(
             [0] * mol_atom_orb_num.shape[0])
-        refer_mol_atom_orb_num_temp[reference_mol_get_mask(
-            mol)] = refer_mol_atom_orb_num
-        refer_mol_atom_orb_num = refer_mol_atom_orb_num_temp
+        ref_mol_atom_orb_num_temp[reference_mol_get_mask(
+            mol)] = ref_mol_atom_orb_num
+        ref_mol_atom_orb_num = ref_mol_atom_orb_num_temp
         pass
 
-    vir_atom_orb_num = mol_atom_orb_num - refer_mol_atom_orb_num
-    num_occ_cumsum = numpy.cumsum(refer_mol_atom_orb_num)
+    vir_atom_orb_num = mol_atom_orb_num - ref_mol_atom_orb_num
+    num_occ_cumsum = numpy.cumsum(ref_mol_atom_orb_num)
     num_vir_cumsum = numpy.cumsum(vir_atom_orb_num)
 
-    c_occ_split = cupy.split(c_occ, num_occ_cumsum, axis=1)[:-1]
-    c_vir_split = cupy.split(c_vir, num_vir_cumsum, axis=1)[:-1]
+    coeff_iao_split = cupy.split(coeff_iao, num_occ_cumsum, axis=1)[:-1]
+    coeff_pao_split = cupy.split(coeff_pao, num_vir_cumsum, axis=1)[:-1]
 
     c_iao_parts = [
         cupy.hstack(
             (occ, vir)) for occ, vir in zip(
-            c_occ_split, c_vir_split)]
+            coeff_iao_split, coeff_pao_split)]
 
-    c_iao = cupy.hstack(c_iao_parts)
+    coeff_iao_pao = cupy.hstack(c_iao_parts)
 
-    return c_iao
+    return coeff_iao_pao

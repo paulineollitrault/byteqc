@@ -132,7 +132,7 @@ def div_t2(t2, A, B, C, D):
 
 
 def cderi_ovL_outcore(mol, auxmol, coeff_o, coeff_v,
-                      oblk, vblk, log=None, path=None):
+                      oblk, vblk, log=None, path=None, save_j2c=False):
     '''Store the ERI in the desired format in disk.'''
     if log is None:
         log = logger.new_logger(mol, mol.verbose)
@@ -184,6 +184,8 @@ def cderi_ovL_outcore(mol, auxmol, coeff_o, coeff_v,
         'eri', (naux_cart, nocc, nvir), 'f8', blksizes=(kextents, oblk))
     cderi = file.create_dataset('cderi', (nocc, nvir, naux), 'f8',
                                 blksizes=(oblk, vblk))
+    if save_j2c:
+        file.create_dataset('j2c', (naux, naux), 'f8', data=j2c.get())
     file.close()
 
     int3cs = Mg.mapgpu(lambda: cupy.empty((nauxblk, naoblk, naoblk), 'f8'))
@@ -194,7 +196,7 @@ def cderi_ovL_outcore(mol, auxmol, coeff_o, coeff_v,
               for _ in range(ngpu)]
     pools = [Pool(processes=lib.NumFileProcess) for _ in range(ngpu)]
     waits = [None] * ngpu
-    time0 = log.timer_debug1("cderi_ovL_outcore prepare", *time0)
+    time0 = log.timer("cderi_ovL_outcore prepare", *time0)
 
     def eri_gen_OVL(cp_aux_id):
         gid = Mg.getgid()
@@ -237,7 +239,7 @@ def cderi_ovL_outcore(mol, auxmol, coeff_o, coeff_v,
 
         eri_d.get(out=eri_h, blocking=True)
         waits[gid] = eri.setitem(numpy.s_[sk, :], eri_h, pool=pools[gid])
-        log.timer_debug1(
+        log.timer(
             'cderi_ovL_outcore cp_aux_id:%d/%d on GPU%d' % (
                 cp_aux_id + 1, nauxid, Mg.gpus[gid]), *time1)
 
@@ -246,7 +248,7 @@ def cderi_ovL_outcore(mol, auxmol, coeff_o, coeff_v,
         if wait:
             for w in wait:
                 w.wait()
-    time0 = log.timer_debug1("cderi_ovL_outcore step1", *time0)
+    time0 = log.timer("cderi_ovL_outcore step1", *time0)
 
     auxcoeff = cupy.asarray(vhfopt.auxcoeff.T, order='C')
     auxcoeff, j2c = Mg.broadcast(auxcoeff, j2c)
@@ -292,7 +294,7 @@ def cderi_ovL_outcore(mol, auxmol, coeff_o, coeff_v,
         cderi_h = cderi_h.reshape(so_len, nvir, naux)
 
         waits[gid] = cderi.setitem(numpy.s_[so], cderi_h, pool=pools_w[gid])
-        log.timer_debug1('cderi_ovL_outcore nao:[%d:%d]/%d on GPU%s' %
+        log.timer('cderi_ovL_outcore nao:[%d:%d]/%d on GPU%s' %
                          (so.start, so.stop, nocc, Mg.gpus[gid]), *time1)
 
     Mg.map(get_cderi, oslices)
@@ -307,7 +309,7 @@ def cderi_ovL_outcore(mol, auxmol, coeff_o, coeff_v,
         p.terminate()
         p.join()
     cderis_d = eris_d = cderis_h = eris_h = waits = pools_r = pools_w = None
-    time0 = log.timer_debug1("cderi_ovL_outcore step2", *time0)
+    time0 = log.timer("cderi_ovL_outcore step2", *time0)
     return path, oslices
 
 
@@ -331,7 +333,7 @@ def mp2_get_corr(mol, path, oslices, nvir, nocc, naux, e_mo, log=None, with_rdm1
     jbs_d = Mg.mapgpu(lambda: cupy.empty((oblk, nvir, naux), 'f8'))
 
     if with_rdm1:
-        tua_d = Mg.mapgpu(lambda: cupy.empty((oblk ** 2 * nvir ** 2), 'f8'))
+        tau_d = Mg.mapgpu(lambda: cupy.empty((oblk ** 2 * nvir ** 2), 'f8'))
 
     if with_rdm1:
         rdm1_vir_d = Mg.mapgpu(lambda: cupy.zeros((nvir, nvir), 'f8'))
@@ -375,11 +377,11 @@ def mp2_get_corr(mol, path, oslices, nvir, nocc, naux, e_mo, log=None, with_rdm1
         e_corr = tmp.ravel().dot(ia_d.ravel()).item()
 
         if with_rdm1:
-            tua = lib.empty_from_buf(tua_d[gid], t2.shape, 'f8')
-            cupy.copyto(tua, t2)
-            tua *= 2
-            tua -= t2.transpose(0, 3, 2, 1)
-            contraction('iajc', t2, 'ibjc', tua, 'ab', rdm1_vir_d[gid],
+            tau = lib.empty_from_buf(tau_d[gid], t2.shape, 'f8')
+            cupy.copyto(tau, t2)
+            tau *= 2
+            tau -= t2.transpose(0, 3, 2, 1)
+            contraction('iajc', t2, 'ibjc', tau, 'ab', rdm1_vir_d[gid],
                         alpha=2.0, beta=1.0)
 
         oslices2 = oslices[o_ind + 1:]
@@ -412,25 +414,25 @@ def mp2_get_corr(mol, path, oslices, nvir, nocc, naux, e_mo, log=None, with_rdm1
             cupy.copyto(ia_d, ia_d2)
 
             if with_rdm1:
-                tua = lib.empty_from_buf(tua_d[gid], t2.shape, 'f8')
-                cupy.copyto(tua, t2)
-                tua *= 2
-                tua -= t2.transpose(0, 3, 2, 1)
+                tau = lib.empty_from_buf(tau_d[gid], t2.shape, 'f8')
+                cupy.copyto(tau, t2)
+                tau *= 2
+                tau -= t2.transpose(0, 3, 2, 1)
 
-                contraction('iajc', t2, 'ibjc', tua, 'ab', rdm1_vir_d[gid],
+                contraction('iajc', t2, 'ibjc', tau, 'ab', rdm1_vir_d[gid],
                             alpha=2.0, beta=1.0)
-                contraction('icja', t2, 'icjb', tua, 'ab', rdm1_vir_d[gid],
+                contraction('icja', t2, 'icjb', tau, 'ab', rdm1_vir_d[gid],
                             alpha=2.0, beta=1.0)
 
-                tua = None
+                tau = None
 
-        log.timer_debug1('mp2_kernel nao:[%d:%d]/%d on GPU%s' %
+        log.timer('mp2_kernel nao:[%d:%d]/%d on GPU%s' %
                          (so.start, so.stop, nocc, Mg.gpus[gid]), *time0)
 
         return e_corr
 
     e_corr_list = Mg.map(MP2_kernel, range(len(oslices)))
-    ias_d = jbs_d = t2s = ias_h = jbs_h = pools = tua_d = e_mos = None
+    ias_d = jbs_d = t2s = ias_h = jbs_h = pools = tau_d = e_mos = None
 
     e_corr = numpy.sum(e_corr_list).item()
 
@@ -454,6 +456,7 @@ def mp2_get_corr(mol, path, oslices, nvir, nocc, naux, e_mo, log=None, with_rdm1
 
 def mp2_get_occ_1rdm(path, vslices, nvir, nocc, naux, e_mo, log):
 
+    time0 = logger.process_clock(), logger.perf_counter()
     vblk = vslices[0].stop - vslices[0].start
 
     file = lib.FileMp(path + '/eris.dat', 'r')
@@ -465,7 +468,7 @@ def mp2_get_occ_1rdm(path, vslices, nvir, nocc, naux, e_mo, log):
     ias_d = Mg.mapgpu(lambda: cupy.empty((nocc, vblk, naux), 'f8'))
     jbs_d = Mg.mapgpu(lambda: cupy.empty((nocc, vblk, naux), 'f8'))
 
-    tua_d = Mg.mapgpu(lambda: cupy.empty((vblk ** 2 * nocc ** 2), 'f8'))
+    tau_d = Mg.mapgpu(lambda: cupy.empty((vblk ** 2 * nocc ** 2), 'f8'))
     rdm1_occ_d = Mg.mapgpu(lambda: cupy.zeros((nocc, nocc), 'f8'))
 
     t2s = Mg.mapgpu(lambda: cupy.empty((nocc ** 2, vblk ** 2), 'f8'))
@@ -475,7 +478,7 @@ def mp2_get_occ_1rdm(path, vslices, nvir, nocc, naux, e_mo, log):
     jbs_h = [lib.empty((vblk, nocc, naux), 'f8', type=MemoryTypeHost)
              for _ in range(ngpu)]
     pools = [Pool(processes=lib.NumFileProcess) for _ in range(ngpu)]
-
+    log.timer('mp2_get_occ_1rdm prepare', *time0)
     def MP2_occ_1rdm_kernel(v_ind):
         gid = Mg.getgid()
         time0 = logger.process_clock(), logger.perf_counter()
@@ -500,11 +503,11 @@ def mp2_get_occ_1rdm(path, vslices, nvir, nocc, naux, e_mo, log):
             (nocc, sv_len, nocc, sv_len))
         div_t2(t2, e_mo_o, e_mo_v[sv], e_mo_o, e_mo_v[sv])
 
-        tua = lib.empty_from_buf(tua_d[gid], t2.shape, 'f8')
-        cupy.copyto(tua, t2)
-        tua *= 2
-        tua -= t2.transpose(2, 1, 0, 3)
-        contraction('iakb', t2, 'jakb', tua, 'ij', rdm1_occ_d[gid],
+        tau = lib.empty_from_buf(tau_d[gid], t2.shape, 'f8')
+        cupy.copyto(tau, t2)
+        tau *= 2
+        tau -= t2.transpose(2, 1, 0, 3)
+        contraction('iakb', t2, 'jakb', tau, 'ij', rdm1_occ_d[gid],
                     alpha=-2.0, beta=1.0)
 
         vslices2 = vslices[v_ind + 1:]
@@ -525,22 +528,22 @@ def mp2_get_occ_1rdm(path, vslices, nvir, nocc, naux, e_mo, log):
                 (nocc, sv_len, nocc, sv_len2))
             div_t2(t2, e_mo_o, e_mo_v[sv], e_mo_o, e_mo_v[sv2])
 
-            tua = lib.empty_from_buf(tua_d[gid], t2.shape, 'f8')
-            cupy.copyto(tua, t2)
-            tua *= 2
-            tua -= t2.transpose(2, 1, 0, 3)
+            tau = lib.empty_from_buf(tau_d[gid], t2.shape, 'f8')
+            cupy.copyto(tau, t2)
+            tau *= 2
+            tau -= t2.transpose(2, 1, 0, 3)
 
-            contraction('iakb', t2, 'jakb', tua, 'ij', rdm1_occ_d[gid],
+            contraction('iakb', t2, 'jakb', tau, 'ij', rdm1_occ_d[gid],
                         alpha=-2.0, beta=1.0)
-            contraction('kaib', t2, 'kajb', tua, 'ij', rdm1_occ_d[gid],
+            contraction('kaib', t2, 'kajb', tau, 'ij', rdm1_occ_d[gid],
                         alpha=-2.0, beta=1.0)
 
-        log.timer_debug1('mp2_get_occ_1rdm nao:[%d:%d]/%d on GPU%s' %
+        log.timer('mp2_get_occ_1rdm nao:[%d:%d]/%d on GPU%s' %
                          (sv.start, sv.stop, nvir, Mg.gpus[gid]), *time0)
 
     Mg.map(MP2_occ_1rdm_kernel, range(len(vslices)))
     rdm1_occ_list = Mg.map(cupy.asnumpy, rdm1_occ_d)
     rdm1_occ = numpy.sum(rdm1_occ_list, axis=0)
-    ias_d = jbs_d = t2s = ias_h = jbs_h = pools = tua_d = e_mos = rdm1_occ_list = None
+    ias_d = jbs_d = t2s = ias_h = jbs_h = pools = tau_d = e_mos = rdm1_occ_list = None
 
     return rdm1_occ

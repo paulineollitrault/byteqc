@@ -16,3 +16,4 @@
 
 from byteqc.cump2.dfmp2 import kernel as DFMP2
 from byteqc.cump2.dfkmp2 import kernel as DFKMP2
+from byteqc.cump2.dfmp2_grad import kernel as DFMP2_grad

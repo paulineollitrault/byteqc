@@ -34,6 +34,7 @@ from byteqc.lib import Mg, contraction, elementwise_binary
 
 LMAX_ON_GPU = 5
 
+libgint = load_library('libgint')
 libgvhf = load_library('libgvhf')
 
 
@@ -398,7 +399,7 @@ class _VHFOpt(_vhf.VHFOpt):
         nbas = mol.nbas
         bas_coords = numpy.empty((nbas * 3,))
         bpcache = ctypes.POINTER(BasisProdCache)()
-        libgvhf.GINTinit_basis_prod_cpu(
+        libgint.GINTinit_basis_prod_cpu(
             ctypes.byref(bpcache), ctypes.c_double(scale_shellpair_diag),
             bas_coords.ctypes.data_as(ctypes.c_void_p),
             self.bas_pair2shls.ctypes.data_as(ctypes.c_void_p),
@@ -415,7 +416,7 @@ class _VHFOpt(_vhf.VHFOpt):
         self.bpcaches = [None] * Mg.ngpu
         for i in range(Mg.ngpu):
             self.bpcaches[i] = ctypes.POINTER(BasisProdCache)()
-            libgvhf.GINTinit_basis_prod_gpu(
+            libgint.GINTinit_basis_prod_gpu(
                 ctypes.byref(bpcache), ctypes.byref(self.bpcaches[i]),
                 ctypes.cast(self.memory[0][i].data.ptr, ctypes.c_void_p),
                 ctypes.cast(self.memory[1][i].data.ptr, ctypes.c_void_p),
@@ -425,7 +426,7 @@ class _VHFOpt(_vhf.VHFOpt):
 
     def clear(self):
         _vhf.VHFOpt.__del__(self)
-        libgvhf.GINTdel_basis_prod(ctypes.byref(self.bpcache))
+        libgint.GINTdel_basis_prod(ctypes.byref(self.bpcache))
         return self
 
     def __del__(self):

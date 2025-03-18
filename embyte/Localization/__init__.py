@@ -15,4 +15,4 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 from byteqc.embyte.Localization.meta_lowdin import meta_lowdin_localization
-from byteqc.embyte.Localization.iao import iao_localization
+from byteqc.embyte.Localization.iao import iao_pao_localization

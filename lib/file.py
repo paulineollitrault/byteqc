@@ -359,7 +359,7 @@ class DatasetMp():
         for ind in product(*super_keys):
             r = ((self.delims[i][ind[i]:ind[i] + 2]) for i in range(ndim))
             dest, src = indtrans(r, keys)
-            src = tuple(0 if v.shape[i] == 1 else src[i] for i in range(ndim))
+            # src = tuple(0 if v.shape[i] == 1 else src[i] for i in range(ndim))
             p = ioMp(pool, 'write', self.dir + indfmt(ind) + '.dat',
                     v, src, dest)
             waits.append(p)
