@@ -130,9 +130,54 @@ take010 = cupy.ElementwiseKernel(
         out = r[a * extb * extc + indb[m] * extc + c];
     ''', 'take010')
 
+# nocc, nocc, nvir, nvir = r.shape
+# for i in range(n):
+#   out[i, :, :, :] = r[:, :, indb[i], :].transpose((1,0,2,3))
+take0010_t = cupy.ElementwiseKernel(
+    'int64 nocc, int64 nvir, raw int32 indb, raw T r', 'T out', '''
+        int c = i % nvir;
+        size_t ind = i / nvir;
+        int b = ind % nocc;
+        ind /= nocc;
+        int a = ind % nocc;
+        int m = ind / nocc;
+        out = r[(b * nocc + a) * nvir * nvir + indb[m] * nvir + c];
+    ''', 'take0010_t')
+
+# nocc, extb, extc = r.shape
+# for i in range(n):
+#   out[i, (:, :), :] = r[(:, :), indb[i], :].transpose((1,0,2,3))
+#   #(:, :) are sliced by p0:p1
+take0010_s_t = cupy.ElementwiseKernel(
+    'int64 nocc, int64 nvir, int64 p0, int64 p1, raw int32 indb,'
+    ' raw T r', 'raw T out', '''
+        int c = i % nvir;
+        size_t ind = i / nvir;
+        int p = ind % (p1 - p0);
+        int m = ind / (p1 - p0);
+        int b = (p+p0) % nocc;
+        int a = (p+p0) / nocc;
+        out[m * nocc * nocc * nvir + (a*nocc+b) * nvir + c] = \
+            r[(b*nocc+a) * extb * nvir + indb[m] * nvir + c];
+    ''', 'take010_s')
+
+# nocc, nvir, nocc, nocc = r.shape
+# for i in range(n):
+#   out[i, :, :, :] = r[:, indb[i], :, :].transpose((2,1,0,3))
+take0100_t = cupy.ElementwiseKernel(
+    'int64 nocc, int64 nvir, raw int32 indb, raw T r', 'T out', '''
+        int d = i % nocc;
+        size_t ind = i / nocc;
+        int c = ind % nocc;
+        ind /= nocc;
+        int a = ind % nocc;
+        int m = ind / nocc;
+        out = r[c * nvir * nocc * nocc + indb[m] * nocc * nocc + a * nocc + d];
+    ''', 'take0100_t')
+
 # exta, extb, extc = r.shape
 # for i in range(n):
-#   out[:, off:off+exta][i, :, :] = r[:, indb[i], :]
+#   out[i, off:off+exta, :, :] = r[:, indb[i], :]
 take010_s = cupy.ElementwiseKernel(
     'int64 exta, int64 p0, int64 p1, int64 extb, int64 extc, raw int32 indb,'
     ' raw T r', 'raw T out', '''
@@ -233,16 +278,19 @@ def kernel(mycc, eris, t1=None, t2=None, projector=None):
         # t2 can store in GPU
         t2 = Mg.broadcast(t2)
 
-        def take010_t2(out, ind, t2, buf):
+        def take010_t2(out, ind, t2, buf, isTrans=False):
             igpu = Mg.getgid()
-            take010(nocc * nocc, nvir, nvir, ind, t2[igpu], out)
+            if isTrans:
+                take0010_t(nocc, nvir, ind, t2[igpu], out)
+            else:
+                take010(nocc * nocc, nvir, nvir, ind, t2[igpu], out)
 
         def take011_t2(out, ind1, ind2, t2, buf):
             igpu = Mg.getgid()
             take011(nocc * nocc, nvir, nvir, ind1, ind2, t2[igpu], out)
     else:
         # t2 can't store in GPU
-        def take010_t2(out, ind, t2, buf):
+        def take010_t2(out, ind, t2, buf, isTrans=False):
             blk = min(nocc * nocc, int(buf.bufsize / 8 / nvir**2))
             n = len(ind)
             t2 = t2.reshape(nocc**2, nvir, nvir)
@@ -250,8 +298,12 @@ def kernel(mycc, eris, t1=None, t2=None, projector=None):
             buf1 = buf.left()
             for p0, p1 in prange(0, nocc * nocc, blk):
                 t2p = t2[p0:p1].ascupy(buf=buf1)
-                take010_s(nocc * nocc, p0, p1, nvir, nvir, ind, t2p, out,
-                          size=n * (p1 - p0) * nvir)
+                if isTrans:
+                    take0010_s_t(nocc, nvir, p0, p1, ind, t2p, out,
+                                 size=n * (p1 - p0) * nvir)
+                else:
+                    take010_s(nocc * nocc, p0, p1, nvir, nvir, ind, t2p, out,
+                              size=n * (p1 - p0) * nvir)
             buf.untag('t2')
 
         def take011_t2(out, ind1, ind2, t2, buf):
@@ -287,9 +339,16 @@ def kernel(mycc, eris, t1=None, t2=None, projector=None):
             a, b, c = [abc[i] for i in _inds[i]]
             mode = _modes[i]
             tmpbuf.loadtag()
+            # For i in range(6) the contraction time t_i is in order
+            #   t_0<t_5<t_3<t_1<t_4<t_2
+            # Expensive t2s is read only if i % 2 == 0 to reduce I/O time.
+            # Switching two nocc dims of t2s for i = 2, 3 can save time
+            # After switching the total time is
+            #   t_0+t_1+t_4+t_1+t_4+t_5
             if i % 2 == 0:
                 t2s = tmpbuf.empty((n, nocc, nocc, nvir), 'f8')
-                take010_t2(t2s, c, t2, tmpbuf)
+                take010_t2(t2s, c, t2, tmpbuf,
+                           isTrans=True if i == 2 else False)
                 tmpbuf.tag('t2')
             tmpbuf.loadtag('t2')
             eri_ovvv = tmpbuf.empty((n, nocc, nvir), 'f8')
@@ -302,33 +361,44 @@ def kernel(mycc, eris, t1=None, t2=None, projector=None):
                 take01(naux * nocc, nvir, a, ovvv[igpu].l1, lov)
                 take010(naux, nvir, nvir, b, ovvv[igpu].l2, lvv)
                 lib.contraction('nlo', lov, 'nlv', lvv, 'nov', eri_ovvv)
+            inc = 'njkf' if i == 2 or i == 3 else 'nkjf'
             if w is None:
-                w = lib.contraction('nif', eri_ovvv, 'nkjf',
+                w = lib.contraction('nif', eri_ovvv, inc,
                                     t2s, mode, buf=bufw[igpu])
             else:
-                w = lib.contraction('nif', eri_ovvv, 'nkjf', t2s, mode, w,
+                w = lib.contraction('nif', eri_ovvv, inc, t2s, mode, w,
                                     beta=1.0)
 
         for i in range(6):
             a, b, c = [abc[i] for i in inds[i]]
             mode = modes[i]
             tmpbuf.loadtag()
-            if i % 2 == 0:
+            # For i in range(6) the contraction time t_i is in order
+            #   t_0<t_1<t_5<t_2<t_4<t_3
+            # Readind eri_ovoo is cheap, only reuse it for i = 1, 3
+            # Switching two nocc dims of t2s for i = 2, 4, 3 can save time.
+            # After switching the total time is
+            #   t_0+t_1+t_0+t_5+t_1+t_5
+            if i not in [1, 3]:
                 eri_ovoo = tmpbuf.empty((n, nocc, nocc, nocc), 'f8')
                 if ovoo[igpu].l2 is None:
-                    take010(nocc, nvir, nocc * nocc, a, ovoo[igpu], eri_ovoo)
+                    if i in [0, 5]:
+                        take010(nocc, nvir, nocc * nocc,
+                                a, ovoo[igpu], eri_ovoo)
+                    else:
+                        take0100_t(nocc, nvir, a, ovoo[igpu], eri_ovoo)
                 else:
                     naux = ovoo[igpu].l1.shape[0]
                     lov = tmpbuf.empty((n, naux, nocc), 'f8')
                     take01(naux * nocc, nvir, a, ovoo[igpu].l1, lov)
                     lib.contraction('nlo', lov, 'lpq',
-                                    ovoo[igpu].l2, 'nopq', eri_ovoo)
+                                    ovoo[igpu].l2, 'nopq' if i in [0, 5] else 'npoq', eri_ovoo)
                 tmpbuf.tag('ovoo')
             tmpbuf.loadtag('ovoo')
             t2ss = tmpbuf.empty((n, nocc, nocc), 'f8')
             take011_t2(t2ss, c, b, t2, tmpbuf)
-
-            lib.contraction('nijm', eri_ovoo, 'nkm', t2ss, mode, w,
+            inda = 'nijm' if i in [0, 1, 5] else 'njim'
+            lib.contraction(inda, eri_ovoo, 'nkm', t2ss, mode, w,
                             beta=1.0, alpha=-1.0)
         return w
 
