@@ -375,7 +375,7 @@ def SIE_BNO_builder(low_level_info, fb_size_list, LOEO,
     EOBNO_occ = fix_orbital_sign(EOBNO_occ)
     LOBNO_occ = cupy.dot(eo_occ_coeff, EOBNO_occ).get()
     ele_diff_occ = ele_diff_occ.get()
-    assert not numpy.any(ele_diff_occ > 0)
+    assert not numpy.any(ele_diff_occ > 1e-10)
     ele_diff_occ = abs(ele_diff_occ)
 
     LOBNO_env = numpy.hstack((LOBNO_occ, LOBNO_vir))

@@ -465,7 +465,7 @@ def eri_ondisk_OVL_SIE_MP2(mol, cderi_AO_file, mo_coeff_occ1,
 
         cderi_pack = lib.empty_from_buf(buffer_gpu_tmp, cderi.shape, 'f8')
         cderi_pack.set(cderi)
-
+        cupy.cuda.Stream().synchronize()
         if sL_ind + 1 < len(auxslice):
             sL_next = auxslice[sL_ind + 1]
             sL_len_next = min(
@@ -754,7 +754,7 @@ def eri_high_level_solver_incore(mol, auxmol, mo_coeff_occ, mo_coeff_unocc,
         numpy.copyto(unLovs_h, unLov[:, sov])
         unLovs.set(unLovs_h)
 
-        cupy.cuda.Stream.null.synchronize()
+        cupy.cuda.Stream().synchronize()
         ovs_L = lib.gemm(unLovs, auxcoeff, buf=buff2, transa='T', transb='N')
 
         solve_triangular(j2c, ovs_L.T, lower=True, overwrite_b=True,)
@@ -763,7 +763,7 @@ def eri_high_level_solver_incore(mol, auxmol, mo_coeff_occ, mo_coeff_unocc,
 
         lib.gemm(ovs_L, ovs_L, LL_svd, transa='T', transb='N', beta=1.0)
 
-    cupy.cuda.Stream.null.synchronize()
+    cupy.cuda.Stream().synchronize()
     unLov = unLovs = unLovs_h = ovs_L = buff = buff2 = trans_buff_h = j2c = None
     lib.free_all_blocks()
     gc.collect()
@@ -819,7 +819,7 @@ def eri_high_level_solver_incore(mol, auxmol, mo_coeff_occ, mo_coeff_unocc,
         ovs_L.set(ovL[sov])
 
         if solver_type == 'MP2':
-            cupy.cuda.Stream.null.synchronize()
+            cupy.cuda.Stream().synchronize()
             cderi_cut_s = lib.gemm(
                 ovs_L,
                 U_svd,
@@ -839,7 +839,7 @@ def eri_high_level_solver_incore(mol, auxmol, mo_coeff_occ, mo_coeff_unocc,
             cderi_cut_s.get(out=cderi_cut_s_h, blocking=True)
             cderi_cut[:, sov] = cderi_cut_s_h
 
-    cupy.cuda.Stream.null.synchronize()
+    cupy.cuda.Stream().synchronize()
     U_svd = buff_ovL = buff_cderi_cut = buff_cderi_cut_h = ovL = ovs_L = cderi_cut_s = cderi_cut_s_h = None
     lib.free_all_blocks()
     gc.collect()
@@ -973,6 +973,7 @@ def eri_ondisk_high_level_solver_incore(
 
         cderi_pack = lib.empty_from_buf(buffer_gpu_tmp, cderi.shape, 'f8')
         cderi_pack.set(cderi)
+        cupy.cuda.Stream().synchronize()
 
         if sL_ind + 1 < len(auxslice):
             sL_next = auxslice[sL_ind + 1]
@@ -1103,7 +1104,7 @@ def eri_ondisk_high_level_solver_incore(
         ovs_L.set(ovL[sov])
 
         if solver_type == 'MP2':
-            cupy.cuda.Stream.null.synchronize()
+            cupy.cuda.Stream().synchronize()
             cderi_cut_s = lib.gemm(
                 ovs_L,
                 U_svd,
@@ -1123,7 +1124,7 @@ def eri_ondisk_high_level_solver_incore(
             cderi_cut_s.get(out=cderi_cut_s_h, blocking=True)
             cderi_cut[:, sov] = cderi_cut_s_h
 
-    cupy.cuda.Stream.null.synchronize()
+    cupy.cuda.Stream().synchronize()
     U_svd = buff_ovL = buff_cderi_cut = buff_cderi_cut_h = ovL = ovs_L = cderi_cut_s = cderi_cut_s_h = None
     lib.free_all_blocks()
     gc.collect()
@@ -1224,10 +1225,8 @@ def eri_high_level_solver_incore_with_jk(
     logger.info(f'GPU buffer size {GPU_buf_size} GB.')
     logger.info(f'CPU buffer size {CPU_buf_size} GB.')
 
-    pool_w1 = multiprocessing.Pool(
-        processes=max(int(lib.NumFileProcess / 2), 1))
-    pool_w2 = multiprocessing.Pool(
-        processes=max(int(lib.NumFileProcess / 2), 1))
+    # pool_w1 = multiprocessing.Pool(processes=1)
+    # pool_w2 = multiprocessing.Pool(processes=1)
     w1 = w2 = None
     for cp_aux_id in range(nauxid):
         logger.info(
@@ -1330,18 +1329,20 @@ def eri_high_level_solver_incore_with_jk(
         ij_sL_h = ij_sL_h.reshape(-1, kextents[cp_aux_id])
         eri_vk_s_h = eri_vk_s_h.reshape(-1, kextents[cp_aux_id])
 
-        w1 = ij_unL_f.setitem(numpy.s_[:, sk], ij_sL_h, pool=pool_w1)
-        w2 = eri_vk_f.setitem(numpy.s_[:, sk], eri_vk_s_h, pool=pool_w2)
+        # w1 = ij_unL_f.setitem(numpy.s_[:, sk], ij_sL_h, pool=pool_w1)
+        # w2 = eri_vk_f.setitem(numpy.s_[:, sk], eri_vk_s_h, pool=pool_w2)
+        w1 = ij_unL_f.setitem(numpy.s_[:, sk], ij_sL_h)
+        w2 = eri_vk_f.setitem(numpy.s_[:, sk], eri_vk_s_h)
 
     for w in w1:
         w.wait()
     for w in w2:
         w.wait()
 
-    pool_w1.close()
-    pool_w1.join()
-    pool_w2.close()
-    pool_w2.join()
+    # pool_w1.close()
+    # pool_w1.join()
+    # pool_w2.close()
+    # pool_w2.join()
 
     buff_tmp = buff_rdm_tmp = buff_eri_d = buff_eri_vk_d = buff_int3c = buff_eri_h = buff_eri_vk_h = None
     ij_sL = eri_vk_s = int3c = tmp = rdm1_tmp = ij_sL_h = eri_vk_s_h = None
@@ -1493,7 +1494,7 @@ def eri_high_level_solver_incore_with_jk(
         sij_L_d.get(out=ijL[sij])
         lib.contraction('iL', sij_L_d, 'L', eri_vj, 'i', vj_d[sij], beta=1.0)
         lib.gemm(sij_L_d, sij_L_d, LL_svd, transa='T', transb='N', beta=1.0)
-        cupy.cuda.Stream.null.synchronize()
+        cupy.cuda.Stream().synchronize()
 
     pool_r.close()
     pool_r.join()
@@ -1699,6 +1700,7 @@ def eri_ondisk_high_level_solver_incore_with_jk(
 
         cderi_pack = lib.empty_from_buf(buffer_gpu_tmp, cderi.shape, 'f8')
         cderi_pack.set(cderi)
+        cupy.cuda.Stream().synchronize()
 
         if sL_ind + 1 < len(auxslice):
             sL_next = auxslice[sL_ind + 1]
@@ -1854,7 +1856,7 @@ def eri_ondisk_high_level_solver_incore_with_jk(
         cderi_cut_s.get(out=cderi_cut_s_h, blocking=True)
         cderi_cut[:, sij] = cderi_cut_s_h
 
-    cupy.cuda.Stream.null.synchronize()
+    cupy.cuda.Stream().synchronize()
     U_svd = buff_ijL = buff_cderi_cut = buff_cderi_cut_h = ijL = ijs_L = cderi_cut_s = cderi_cut_s_h = None
     lib.free_all_blocks()
     gc.collect()

@@ -238,7 +238,7 @@ class GPU_CCSDSolver():
                         cupy.dot, (self.LOMO.T, self.cluster_oei, self.LOMO)).get(
                         blocking=True)
 
-            pool_rw = Pool(processes=lib.NumFileProcess)
+            # pool_rw = Pool(processes=min(lib.NumFileProcess, self.eri_general.shape[0]))
             file = lib.FileMp(
                 os.path.join(
                     eri_path,
@@ -247,12 +247,14 @@ class GPU_CCSDSolver():
             blk = max(int(self.eri_general.shape[0] / lib.NumFileProcess), 1)
             cderi = file.create_dataset(
                 'cderi', self.eri_general.shape, 'f8', blksizes=(blk))
+            # wait_list = cderi.setitem(
+            #     numpy.s_[:], self.eri_general, pool=pool_rw)
             wait_list = cderi.setitem(
-                numpy.s_[:], self.eri_general, pool=pool_rw)
+                numpy.s_[:], self.eri_general)
             for w in wait_list:
                 w.wait()
-            pool_rw.close()
-            pool_rw.join()
+            # pool_rw.close()
+            # pool_rw.join()
             file.close()
             numpy.save(
                 os.path.join(
@@ -464,7 +466,7 @@ class GPU_CCSDSolver():
             self.t2 = self.pool.new(
                 't2', (self.nocc, self.nocc, self.nvir, self.nvir), dtype='f8')
             self.t2.set(t2_h)
-            cupy.cuda.Stream.null.synchronize()
+            cupy.cuda.Stream().synchronize()
             t2_h = None
 
         if not hasattr(self, 't1'):
@@ -473,7 +475,7 @@ class GPU_CCSDSolver():
             with h5py.File(os.path.join(t1t2_path, 't1'), 'r') as f:
                 t1_h[:] = f['t1'][:]
             self.t1.set(t1_h)
-            cupy.cuda.Stream.null.synchronize()
+            cupy.cuda.Stream().synchronize()
             t1_h = None
 
         self.cc_fragment.verbose = 7
@@ -1239,9 +1241,9 @@ class GPU_CCSDSolver():
         no, nv = self.t1.shape
         nL = self.eris.naux
         e_vvvv_ovvv = 0
-
+        lib.free_all_blocks()
         free_size = self.pool.free_memory / 8
-        free_size_tmp = self.pool.free_memory - \
+        free_size_tmp = self.pool.free_memory / 8 - \
             max(self.t2.size, self.eris.Lvv.size, self.eris.Lov.size)
         slice_len1 = free_size_tmp / \
             (nL * nv + nv ** 2 * max(no, nv) + nv * no ** 2)
@@ -1250,6 +1252,7 @@ class GPU_CCSDSolver():
         slice_len = min(int(slice_len1), int(slice_len2))
         slice_len = min(slice_len, nv)
         # slice_len = 2
+        assert slice_len > 0
         slice_v = [slice(i[0], i[1]) for i in prange(0, nv, slice_len)]
         buffer_cpu = self.pool.empty(max(
             no * no * slice_len * nv, nL * nv * slice_len), dtype='f8', type=lib.MemoryTypeHost)
@@ -1270,7 +1273,7 @@ class GPU_CCSDSolver():
             sv_len = sv.stop - sv.start
             l2tmp_h = lib.empty_from_buf(
                 buffer_cpu, (no, no, sv_len, nv), dtype='f8')
-            cupy.cuda.Stream.null.synchronize()
+            cupy.cuda.Stream().synchronize()
             numpy.copyto(l2tmp_h, self.l2x[:, :, sv])
             l1tmp = self.l1x[:, sv].copy()
             t1tmp = self.t1[:, sv].copy()
@@ -1396,7 +1399,7 @@ class GPU_CCSDSolver():
                 beta=1.0,
                 alpha=-1.0)
 
-            cupy.cuda.Stream.null.synchronize()
+            cupy.cuda.Stream().synchronize()
             Lvv_tmp_h = lib.empty_from_buf(
                 buffer_cpu, (nL, sv_len, nv), dtype='f8')
             numpy.copyto(Lvv_tmp_h, self.eris.Lvv[:, sv])

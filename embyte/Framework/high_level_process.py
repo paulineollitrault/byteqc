@@ -344,18 +344,20 @@ class high_level_processing:
                         self.PR.filepath + '/th_%s/' % th_str):
                     os.makedirs(self.PR.filepath + '/th_%s/' % th_str)
                 t2_T_path = self.PR.filepath + '/th_%s/' % th_str + '_t2'
-                pool_rw = multiprocessing.Pool(processes=lib.NumFileProcess)
+                # pool_rw = multiprocessing.Pool(processes=min(lib.NumFileProcess, high_level_solver_frag.t2.shape[0]))
                 file = lib.FileMp(t2_T_path, 'w')
                 blk = max(
                     int(high_level_solver_frag.t2.shape[0] / lib.NumFileProcess), 1)
                 t2_f = file.create_dataset(
                     't2', high_level_solver_frag.t2.shape, 'f8', blksizes=(blk))
+                # wait_list = t2_f.setitem(
+                #     numpy.s_[:], high_level_solver_frag.t2, pool=pool_rw)
                 wait_list = t2_f.setitem(
-                    numpy.s_[:], high_level_solver_frag.t2, pool=pool_rw)
+                    numpy.s_[:], high_level_solver_frag.t2)
                 for w in wait_list:
                     w.wait()
-                pool_rw.close()
-                pool_rw.join()
+                # pool_rw.close()
+                # pool_rw.join()
                 file.close()
 
             if self.RDM and not self.PR.recorder['solver_finish'][th_index]:
@@ -363,16 +365,20 @@ class high_level_processing:
                 if not os.path.exists(
                         self.PR.filepath + '/th_%s/' % th_str):
                     os.makedirs(self.PR.filepath + '/th_%s/' % th_str)
-                pool_w = multiprocessing.Pool(processes=lib.NumFileProcess)
+                nf, _, _, _ = high_level_solver_frag.t2c.shape
+                # pool_w = multiprocessing.Pool(processes=min(lib.NumFileProcess, nf))
                 if 'MP2' in self.electronic_structure_solver.__name__:
                     t2_path = self.PR.filepath + '/th_%s/' % th_str + 't2'
                     file = lib.FileMp(t2_path, 'w')
                     nf, no, nv, _ = high_level_solver_frag.t2c.shape
                     t2_c_f = file.create_dataset(
                         't2', (nf * no, nv, nv), 'f8', blksizes=(no, ))
+                    # wait_list = t2_c_f.setitem(
+                    #     numpy.s_[:], high_level_solver_frag.t2c.reshape(
+                    #         t2_c_f.shape), pool=pool_w)
                     wait_list = t2_c_f.setitem(
                         numpy.s_[:], high_level_solver_frag.t2c.reshape(
-                            t2_c_f.shape), pool=pool_w)
+                            t2_c_f.shape))
                     for w in wait_list:
                         w.wait()
                     file.close()
@@ -405,9 +411,12 @@ class high_level_processing:
                     nf, no, nv, _ = high_level_solver_frag.t2c.shape
                     t2_c_f = file.create_dataset(
                         't2', (nf * no, nv, nv), 'f8', blksizes=(no, ))
+                    # wait_list = t2_c_f.setitem(
+                    #     numpy.s_[:], high_level_solver_frag.t2c.reshape(
+                    #         t2_c_f.shape), pool=pool_w)
                     wait_list = t2_c_f.setitem(
                         numpy.s_[:], high_level_solver_frag.t2c.reshape(
-                            t2_c_f.shape), pool=pool_w)
+                            t2_c_f.shape))
                     for w in wait_list:
                         w.wait()
                     file.close()
@@ -415,9 +424,12 @@ class high_level_processing:
                     file = lib.FileMp(l2_path, 'w')
                     l2_c_f = file.create_dataset(
                         'l2', (nf * no, nv, nv), 'f8', blksizes=(no, ))
+                    # wait_list = l2_c_f.setitem(
+                    #     numpy.s_[:], high_level_solver_frag.l2c.reshape(
+                    #         l2_c_f.shape), pool=pool_w)
                     wait_list = l2_c_f.setitem(
                         numpy.s_[:], high_level_solver_frag.l2c.reshape(
-                            l2_c_f.shape), pool=pool_w)
+                            l2_c_f.shape))
                     for w in wait_list:
                         w.wait()
                     file.close()
@@ -425,8 +437,8 @@ class high_level_processing:
                 else:
                     raise KeyboardInterrupt('Not support for now')
 
-                pool_w.close()
-                pool_w.join()
+                # pool_w.close()
+                # pool_w.join()
 
                 for equi_frag_ind in self.equi_frag:
                     frag_equi_op = self.fragments[equi_frag_ind]['equivalent_operator']

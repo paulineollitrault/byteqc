@@ -121,7 +121,7 @@ class GPU_MP2Solver():
                     self.Logger,
                     solver_type='MP2',
                     svd_tol=1e-4)
-            pool_rw = Pool(processes=lib.NumFileProcess)
+            # pool_rw = Pool(processes=min(lib.NumFileProcess, self.eri_general.shape[0]))
             file = lib.FileMp(
                 os.path.join(
                     eri_path,
@@ -130,12 +130,14 @@ class GPU_MP2Solver():
             blk = max(int(self.eri_general.shape[0] / lib.NumFileProcess), 1)
             cderi = file.create_dataset(
                 'cderi', self.eri_general.shape, 'f8', blksizes=(blk))
+            # wait_list = cderi.setitem(
+            #     numpy.s_[:], self.eri_general, pool=pool_rw)
             wait_list = cderi.setitem(
-                numpy.s_[:], self.eri_general, pool=pool_rw)
+                numpy.s_[:], self.eri_general)
             for w in wait_list:
                 w.wait()
-            pool_rw.close()
-            pool_rw.join()
+            # pool_rw.close()
+            # pool_rw.join()
             file.close()
 
         else:
@@ -277,7 +279,7 @@ class GPU_MP2Solver():
 
             if if_RDM:
                 self.t2c[:, so1] += tmp_t2_c_h
-            cupy.cuda.Stream.null.synchronize()
+            cupy.cuda.Stream().synchronize()
 
             occslice_list2 = occslice_list[so1_ind + 1:]
 
@@ -329,7 +331,7 @@ class GPU_MP2Solver():
 
                 if if_RDM:
                     self.t2c[:, so2] += tmp_t2_c_h
-                cupy.cuda.Stream.null.synchronize()
+                cupy.cuda.Stream().synchronize()
 
                 t2_c = lib.contraction(
                     'ijab',
@@ -363,7 +365,7 @@ class GPU_MP2Solver():
                     beta=1.0)
                 if if_RDM:
                     self.t2c[:, so1] += tmp_t2_c_h
-                cupy.cuda.Stream.null.synchronize()
+                cupy.cuda.Stream().synchronize()
 
             self.Logger.info(
                 f'MP2 high-level solver get_truncation_T nocc:[{so1.start}:{so1.stop}]/{nocc}')

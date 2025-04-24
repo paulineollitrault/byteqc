@@ -14,8 +14,8 @@
 # limitations under the License.
 
 from pyscf import gto
-from gpu4pyscf import scf as gscf
 from byteqc.cump2 import dfmp2_grad
+from gpu4pyscf import scf as gscf
 
 
 if __name__ == '__main__':

@@ -124,7 +124,7 @@ def make_RDM1_equi_pair_group(PR, LG, fragments, equi_part, equi_pair_group,
             (slice_theta_len * nocc_clux, nvir_clux, nvir_clux), dtype='float64')
         pool_r = multiprocessing.Pool(processes=lib.NumFileProcess)
         for s_theta in slice_theta:
-            cupy.cuda.Stream.null.synchronize()
+            cupy.cuda.Stream().synchronize()
             n_s_theta = s_theta.stop - s_theta.start
             slice_r = slice(
                 s_theta.start * nocc_clux,
@@ -164,7 +164,7 @@ def make_RDM1_equi_pair_group(PR, LG, fragments, equi_part, equi_pair_group,
 
             LG_RDM.logger.info('Transpose theta done!')
 
-            cupy.cuda.Stream.null.synchronize()
+            cupy.cuda.Stream().synchronize()
             lib.free_all_blocks()
             gc.collect()
 
@@ -232,7 +232,7 @@ def make_RDM1_equi_pair_group(PR, LG, fragments, equi_part, equi_pair_group,
                 t2_y_buffer_pool_size,
                 if_l2=if_l2
             )
-            cupy.cuda.Stream.null.synchronize()
+            cupy.cuda.Stream().synchronize()
             theta_gpu = cupy.empty(theta.shape, dtype='float64')
             theta_gpu.set(theta)
             CLU_occ_FRAG_x = CLU_occ_FRAG_x_t[:, s_theta].copy()
@@ -564,7 +564,7 @@ def make_RDM1_equi_pair_group(PR, LG, fragments, equi_part, equi_pair_group,
                               for i in range(0, fx, slice_len)]
                 for sy in slice_t2_y:
                     sy_len = min(sy.stop - sy.start, fy - sy.start)
-                    cupy.cuda.Stream.null.synchronize()
+                    cupy.cuda.Stream().synchronize()
                     assert buff_tmp_y.size >= sy_len * iy * ay * by
                     assert sy_len > 0
                     t2_y_tmp_gpu = cupy.ndarray(

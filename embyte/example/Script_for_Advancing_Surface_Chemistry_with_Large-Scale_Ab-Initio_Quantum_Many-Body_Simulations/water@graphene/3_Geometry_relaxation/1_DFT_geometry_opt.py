@@ -156,7 +156,7 @@ if __name__ == '__main__':
 
             mol_opt = optimize(
                 mf,
-                constraints=os.path.join(current, 'constraints.txt'),
+                constraints=os.path.join(current, 'constraints'),
                 maxsteps=max_scf_cycles * 10,
                 callback=callback)
 

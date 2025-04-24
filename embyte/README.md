@@ -28,8 +28,7 @@ mpirun -n $NODE python SIE_script.py
 If you get multi GPUs in a node, you can directly use `mpirun` like
 ```
 mpirun -np 2 \ # 2 is the number of the GPUs you want to use
-    --map-by ppr:1:socket:PE=15 \ # 15 is the number of cores per process
-    --bind-to core \ # Bind to the core
+    --bind-to none \
     -x CUDA_VISIBLE_DEVICES \
     bash -c 'export CUDA_VISIBLE_DEVICES=${OMPI_COMM_WORLD_LOCAL_RANK}; python SIE_script.py'
 ```
