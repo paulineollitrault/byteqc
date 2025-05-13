@@ -410,6 +410,7 @@ class EriWrapper:
     '''
     A unified interface for CD-ERI and ERI.
     '''
+
     def __init__(self, l1, l2=None):
         '''`l2=None` means that the ERI is without density-fitting.'''
         self.l1 = l1

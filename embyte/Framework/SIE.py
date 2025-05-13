@@ -155,9 +155,9 @@ class SIE_kernel:
                 self.threshold = [[element, element] for element in self.threshold]
             elif all(isinstance(element, list) for element in self.threshold):
                 for th_tmp in self.threshold:
-                    assert len(th_tmp) == 2,\
+                    assert len(th_tmp) == 2, \
                         f'The BNO threshold only support for occ and vir, but get {len(th_tmp)} thresholds!'
-                    assert all(isinstance(element, float) for element in th_tmp),\
+                    assert all(isinstance(element, float) for element in th_tmp), \
                         f'The BNO threshold only support to be float!'
         else:
             assert False, 'The BNO threshold must be set as float or list with float'
@@ -172,9 +172,9 @@ class SIE_kernel:
                         self.cheat_th[clu_ind] = [[element, element] for element in val]
                     elif all(isinstance(element, list) for element in val):
                         for th_tmp in val:
-                            assert len(th_tmp) == 2,\
+                            assert len(th_tmp) == 2, \
                                 f'The BNO threshold only support for occ and vir, but get {len(th_tmp)} thresholds!'
-                            assert all(isinstance(element, float) for element in th_tmp),\
+                            assert all(isinstance(element, float) for element in th_tmp), \
                                 f'The BNO threshold only support to be float!'
                 else:
                     assert False, 'The BNO threshold must be set as float or list with float'

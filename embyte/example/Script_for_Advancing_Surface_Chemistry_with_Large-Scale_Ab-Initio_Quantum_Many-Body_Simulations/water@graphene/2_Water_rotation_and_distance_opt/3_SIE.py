@@ -188,7 +188,7 @@ def water_on_PAH_OBC(basis_set, mol_type, n, ad_type='2-leg', Z_t=0):
         assert isinstance(
             ad_type, int) or isinstance(
             ad_type, float), 'The degree of the water rotation angle must be a number or a str 0-leg or 2-leg.'
-        angle = ad_type
+        angle = ad_type / 180 * numpy.pi
 
     water_rotate = rotate_vector(water, V, angle) + Z + mol_shift
 

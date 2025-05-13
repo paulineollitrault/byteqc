@@ -348,7 +348,7 @@ Before excuting the scripts, `gpu4pyscf` should be installed in a new virtual mi
 ```bash
 conda create -n -y gpu4pyscf python=3.12
 conda activate gpu4pyscf
-pip3 install gpu4pyscf-cuda12x
+pip3 install gpu4pyscf-cuda12x==1.1.0
 ```
 And after excution, the `gpu4pyscf` environment should be deactivated and remove by using following command:
 ```bash

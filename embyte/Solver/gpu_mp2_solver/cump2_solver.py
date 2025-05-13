@@ -279,7 +279,7 @@ class GPU_MP2Solver():
 
             if if_RDM:
                 self.t2c[:, so1] += tmp_t2_c_h
-            cupy.cuda.Stream().synchronize()
+            cupy.cuda.get_current_stream().synchronize()
 
             occslice_list2 = occslice_list[so1_ind + 1:]
 
@@ -331,7 +331,7 @@ class GPU_MP2Solver():
 
                 if if_RDM:
                     self.t2c[:, so2] += tmp_t2_c_h
-                cupy.cuda.Stream().synchronize()
+                cupy.cuda.get_current_stream().synchronize()
 
                 t2_c = lib.contraction(
                     'ijab',
@@ -365,7 +365,7 @@ class GPU_MP2Solver():
                     beta=1.0)
                 if if_RDM:
                     self.t2c[:, so1] += tmp_t2_c_h
-                cupy.cuda.Stream().synchronize()
+                cupy.cuda.get_current_stream().synchronize()
 
             self.Logger.info(
                 f'MP2 high-level solver get_truncation_T nocc:[{so1.start}:{so1.stop}]/{nocc}')

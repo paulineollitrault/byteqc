@@ -26,7 +26,6 @@ from byteqc.embyte.Framework.BNO_building import SIE_BNO_builder
 from byteqc.embyte.Tools.symm_operation import SymmetryRotation, SymmetryReflection, SymmetryInversion
 import numpy
 import shutil
-import multiprocessing
 import cupy
 cupy.cuda.set_pinned_memory_allocator(None)
 

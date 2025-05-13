@@ -465,7 +465,7 @@ def eri_ondisk_OVL_SIE_MP2(mol, cderi_AO_file, mo_coeff_occ1,
 
         cderi_pack = lib.empty_from_buf(buffer_gpu_tmp, cderi.shape, 'f8')
         cderi_pack.set(cderi)
-        cupy.cuda.Stream().synchronize()
+        cupy.cuda.get_current_stream().synchronize()
         if sL_ind + 1 < len(auxslice):
             sL_next = auxslice[sL_ind + 1]
             sL_len_next = min(
@@ -754,7 +754,7 @@ def eri_high_level_solver_incore(mol, auxmol, mo_coeff_occ, mo_coeff_unocc,
         numpy.copyto(unLovs_h, unLov[:, sov])
         unLovs.set(unLovs_h)
 
-        cupy.cuda.Stream().synchronize()
+        cupy.cuda.get_current_stream().synchronize()
         ovs_L = lib.gemm(unLovs, auxcoeff, buf=buff2, transa='T', transb='N')
 
         solve_triangular(j2c, ovs_L.T, lower=True, overwrite_b=True,)
@@ -763,7 +763,7 @@ def eri_high_level_solver_incore(mol, auxmol, mo_coeff_occ, mo_coeff_unocc,
 
         lib.gemm(ovs_L, ovs_L, LL_svd, transa='T', transb='N', beta=1.0)
 
-    cupy.cuda.Stream().synchronize()
+    cupy.cuda.get_current_stream().synchronize()
     unLov = unLovs = unLovs_h = ovs_L = buff = buff2 = trans_buff_h = j2c = None
     lib.free_all_blocks()
     gc.collect()
@@ -819,7 +819,7 @@ def eri_high_level_solver_incore(mol, auxmol, mo_coeff_occ, mo_coeff_unocc,
         ovs_L.set(ovL[sov])
 
         if solver_type == 'MP2':
-            cupy.cuda.Stream().synchronize()
+            cupy.cuda.get_current_stream().synchronize()
             cderi_cut_s = lib.gemm(
                 ovs_L,
                 U_svd,
@@ -839,7 +839,7 @@ def eri_high_level_solver_incore(mol, auxmol, mo_coeff_occ, mo_coeff_unocc,
             cderi_cut_s.get(out=cderi_cut_s_h, blocking=True)
             cderi_cut[:, sov] = cderi_cut_s_h
 
-    cupy.cuda.Stream().synchronize()
+    cupy.cuda.get_current_stream().synchronize()
     U_svd = buff_ovL = buff_cderi_cut = buff_cderi_cut_h = ovL = ovs_L = cderi_cut_s = cderi_cut_s_h = None
     lib.free_all_blocks()
     gc.collect()
@@ -973,7 +973,7 @@ def eri_ondisk_high_level_solver_incore(
 
         cderi_pack = lib.empty_from_buf(buffer_gpu_tmp, cderi.shape, 'f8')
         cderi_pack.set(cderi)
-        cupy.cuda.Stream().synchronize()
+        cupy.cuda.get_current_stream().synchronize()
 
         if sL_ind + 1 < len(auxslice):
             sL_next = auxslice[sL_ind + 1]
@@ -1104,7 +1104,7 @@ def eri_ondisk_high_level_solver_incore(
         ovs_L.set(ovL[sov])
 
         if solver_type == 'MP2':
-            cupy.cuda.Stream().synchronize()
+            cupy.cuda.get_current_stream().synchronize()
             cderi_cut_s = lib.gemm(
                 ovs_L,
                 U_svd,
@@ -1124,7 +1124,7 @@ def eri_ondisk_high_level_solver_incore(
             cderi_cut_s.get(out=cderi_cut_s_h, blocking=True)
             cderi_cut[:, sov] = cderi_cut_s_h
 
-    cupy.cuda.Stream().synchronize()
+    cupy.cuda.get_current_stream().synchronize()
     U_svd = buff_ovL = buff_cderi_cut = buff_cderi_cut_h = ovL = ovs_L = cderi_cut_s = cderi_cut_s_h = None
     lib.free_all_blocks()
     gc.collect()
@@ -1494,7 +1494,7 @@ def eri_high_level_solver_incore_with_jk(
         sij_L_d.get(out=ijL[sij])
         lib.contraction('iL', sij_L_d, 'L', eri_vj, 'i', vj_d[sij], beta=1.0)
         lib.gemm(sij_L_d, sij_L_d, LL_svd, transa='T', transb='N', beta=1.0)
-        cupy.cuda.Stream().synchronize()
+        cupy.cuda.get_current_stream().synchronize()
 
     pool_r.close()
     pool_r.join()
@@ -1700,7 +1700,7 @@ def eri_ondisk_high_level_solver_incore_with_jk(
 
         cderi_pack = lib.empty_from_buf(buffer_gpu_tmp, cderi.shape, 'f8')
         cderi_pack.set(cderi)
-        cupy.cuda.Stream().synchronize()
+        cupy.cuda.get_current_stream().synchronize()
 
         if sL_ind + 1 < len(auxslice):
             sL_next = auxslice[sL_ind + 1]
@@ -1856,7 +1856,7 @@ def eri_ondisk_high_level_solver_incore_with_jk(
         cderi_cut_s.get(out=cderi_cut_s_h, blocking=True)
         cderi_cut[:, sij] = cderi_cut_s_h
 
-    cupy.cuda.Stream().synchronize()
+    cupy.cuda.get_current_stream().synchronize()
     U_svd = buff_ijL = buff_cderi_cut = buff_cderi_cut_h = ijL = ijs_L = cderi_cut_s = cderi_cut_s_h = None
     lib.free_all_blocks()
     gc.collect()

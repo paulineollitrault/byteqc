@@ -43,12 +43,12 @@ def water_on_graphene_PBC(k_mesh, ad_type, basis_set, Z=0, mol_type=2):
     else:
         assert isinstance(
             ad_type, int), 'The degree of the water rotation angle must be a number or a str 0-leg or 2-leg.'
-        angle = ad_type
+        angle = ad_type / 180 * numpy.pi
 
     mol_shift = water[0] + numpy.asarray([0, 0, 0.175])
     water += numpy.asarray([0, 0, 0.35])
     water -= mol_shift
-    angle = angle * numpy.pi / 180
+
     water_rotate = rotate_vector(water, V, angle) + Z + mol_shift
 
     from pyscf.pbc import gto as pbcgto

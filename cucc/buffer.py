@@ -59,6 +59,7 @@ class BufArr:
     It is used to trace the usage of array in BufPool.
     It is not intended to be used directly.
     '''
+
     def __del__(self):
         if self.regist:
             self.buf.free[self.dev] += self.nbytes
@@ -229,6 +230,7 @@ class BufFile(h5py.Dataset, BufArr):
     '''
     BufFile is a wrapper for h5py.Dataset with the usage of h5py.Dataset in BufPool traced.
     '''
+
     def __init__(self, buf, arr, regist=False, cb=lambda: None):
         _init(self, buf, 2, regist)
         self.arr = arr
@@ -297,6 +299,7 @@ class BufferPool():
     '''
     A pool to trace all arrays allocated.
     '''
+
     def __init__(self, gpulim, cpulim, path=param.TMPDIR,
                  verbose=10, mode='w', *args, **kwargs):
         '''

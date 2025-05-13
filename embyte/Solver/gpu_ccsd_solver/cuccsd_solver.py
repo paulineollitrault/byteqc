@@ -466,7 +466,7 @@ class GPU_CCSDSolver():
             self.t2 = self.pool.new(
                 't2', (self.nocc, self.nocc, self.nvir, self.nvir), dtype='f8')
             self.t2.set(t2_h)
-            cupy.cuda.Stream().synchronize()
+            cupy.cuda.get_current_stream().synchronize()
             t2_h = None
 
         if not hasattr(self, 't1'):
@@ -475,7 +475,7 @@ class GPU_CCSDSolver():
             with h5py.File(os.path.join(t1t2_path, 't1'), 'r') as f:
                 t1_h[:] = f['t1'][:]
             self.t1.set(t1_h)
-            cupy.cuda.Stream().synchronize()
+            cupy.cuda.get_current_stream().synchronize()
             t1_h = None
 
         self.cc_fragment.verbose = 7
@@ -1273,7 +1273,7 @@ class GPU_CCSDSolver():
             sv_len = sv.stop - sv.start
             l2tmp_h = lib.empty_from_buf(
                 buffer_cpu, (no, no, sv_len, nv), dtype='f8')
-            cupy.cuda.Stream().synchronize()
+            cupy.cuda.get_current_stream().synchronize()
             numpy.copyto(l2tmp_h, self.l2x[:, :, sv])
             l1tmp = self.l1x[:, sv].copy()
             t1tmp = self.t1[:, sv].copy()
@@ -1399,7 +1399,7 @@ class GPU_CCSDSolver():
                 beta=1.0,
                 alpha=-1.0)
 
-            cupy.cuda.Stream().synchronize()
+            cupy.cuda.get_current_stream().synchronize()
             Lvv_tmp_h = lib.empty_from_buf(
                 buffer_cpu, (nL, sv_len, nv), dtype='f8')
             numpy.copyto(Lvv_tmp_h, self.eris.Lvv[:, sv])
