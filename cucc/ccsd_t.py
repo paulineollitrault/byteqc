@@ -264,6 +264,9 @@ def kernel(mycc, eris, t1=None, t2=None, projector=None):
     unit = nocc * nocc * (nmax + nocc) + nocc * nmax + 3
     if projector is not None:
         unit += nocc ** 3
+        projector = Mg.broadcast(projector)
+    else:
+        projector = [None] * Mg.ngpu
 
     if eris.ovvv.l2 is not None:
         naux = eris.ovvv.l1.shape[0]
@@ -407,14 +410,14 @@ def kernel(mycc, eris, t1=None, t2=None, projector=None):
         tmpbuf = lib.ArrayBuffer(bufleft[igpu])
         vr6 = tmpbuf.empty(wr6.shape, 'f8')
         vr6[:] = wr6
-        if projector is None:
+        if projector[igpu] is None:
             r3(vr6, wr6)
             div_d3(nocc, *abc, e_occ[igpu], e_vir[igpu], wr6)
             lib.contraction('nijk', wr6, 'nijk', vr6, '', et, beta=1.0)
         else:
             r3(wr6, vr6)
             wr6_tmp = tmpbuf.empty(wr6.shape, 'f8')
-            lib.contraction('nijp', vr6, 'pk', projector, 'nijk', wr6_tmp)
+            lib.contraction('nijp', vr6, 'pk', projector[igpu], 'nijk', wr6_tmp)
             div_d3(nocc, *abc, e_occ[igpu], e_vir[igpu], wr6_tmp)
             lib.contraction('nijk', wr6_tmp, 'nijk', wr6, '', et, beta=1.0)
             wr6[:] = wr6_tmp
