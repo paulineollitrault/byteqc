@@ -54,12 +54,17 @@ The `lib` subpackage is exported directly when importing ByteQC. The usage of ea
 ## Citations
 
 ```latex
-@Misc{Guo2025,
-  author       = {Guo, Zhen and Huang, Zigeng and Chen, Qiaorui and Shao, Jiang and Liu, Guangcheng and Pham, Hung and Huang, Yifei and Cao, Changsu and Chen, Ji and Lv, Dingshun},
-  title        = {{ByteQC}: {GPU}-accelerated quantum chemistry package for large-scale systems},
+@Article{Guo2025,
+  author       = {Guo, Zhen and Huang, Zigeng and Chen, Qiaorui and Shao, Jiang and Liu, Guangcheng and Pham, Hung Q. and Huang, Yifei and Cao, Changsu and Chen, Ji and Lv, Dingshun},
+  journal      = {{WIREs} Computational Molecular Science},
+  title        = {{ByteQC}: {GPU}-Accelerated quantum chemistry package for large-scale systems},
   year         = {2025},
-  doi          = {10.48550/ARXIV.2502.17963},
-  publisher    = {arXiv},
+  note         = {e70034 CMS-1169.R1},
+  number       = {3},
+  pages        = {e70034},
+  volume       = {15},
+  doi          = {10.1002/wcms.70034},
+  keywords     = {electronic structure, GPU-accelerated, large-scale, quantum chemistry simulation, quantum embedding},
 }
 ```
 
