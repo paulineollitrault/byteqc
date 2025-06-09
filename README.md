@@ -18,17 +18,20 @@ This package incorporates parts of its code adapted from several external open-s
 
 Requirement:
 
-- cupy (master branch in github)
+GPU requirement: test on NVIDIA V100, A100, H100, and 4070Ti.
+
+- python >= 3.11
+- cupy (master branch in github or >=14.0)
 - nvmath-python
 - h5py
 - mpi4py
 - numpy
 - scipy
-- pyscf = 2.5.0
+- pyscf =2.5.0
 
 Build dependencied:
 
-- libcutensor (installation from conda is also supported)
+- libcutensor >=2.1.0.9 (installation from conda is also supported)
 - libcublas
 
 Build the package by run command `python byteqc/setup.py`.
