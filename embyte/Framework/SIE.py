@@ -316,8 +316,8 @@ class SIE_kernel:
                                                                   oei=self.oei_file,
                                                                   local_orb_path=self.local_orb_path,
                                                                   )
-                if hasattr(low_level_info.mol_full, 'stdout'):
-                    del low_level_info.mol_full.stdout
+                # if hasattr(low_level_info.mol_full, 'stdout'):
+                #     del low_level_info.mol_full.stdout
                 del mean_field
                 self.low_level_info = low_level_info
 
