@@ -172,5 +172,5 @@ class low_level_info:
         self.MOLO = self.MOLO.get()
 
         del mf
-        if hasattr(self.auxmol, 'stdout'):
-            del self.auxmol.stdout
+        # if hasattr(self.auxmol, 'stdout'):
+        #     del self.auxmol.stdout
