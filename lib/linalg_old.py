@@ -18,7 +18,7 @@
 # The original copyright:
 #     Copyright (c) 2015 Preferred Infrastructure, Inc.
 #     Copyright (c) 2015 Preferred Networks, Inc.
-#
+
 #     Permission is hereby granted, free of charge, to any person obtaining a
 #     copy of this software and associated documentation files
 #     (the "Software"), to deal in the Software without restriction, including
@@ -26,10 +26,10 @@
 #     distribute, sublicense, and/or sell copies of the Software, and to permit
 #     persons to whom the Software is furnished to do so, subject to the
 #     following conditions:
-#
+
 #     The above copyright notice and this permission notice shall be included
 #     in all copies or substantial portions of the Software.
-#
+
 #     THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
 #     OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
 #     MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
@@ -51,29 +51,47 @@ from cupy.cublas import _trans_to_cublas_op, _get_scalar_ptr, _decide_ld_and_tra
 from cupy.linalg import _util
 from cupy.cuda import device
 import os.path
+from threading import Lock
 
 from byteqc.lib.array import empty_pinned, empty_from_buf, MemoryTypeDevice, \
     MemoryTypeHost
-from byteqc.lib.utils import hasnan
 from byteqc.lib.multigpu import Mg
+from byteqc.lib.utils import hasnan
 
 # Max int32
 INT32MAX = 2147483647
 
-# Threshold for multi-GPU: only use multi-GPU if tensor is large enough
-MG_SIZE_THRESHOLD = 1024 * 1024  # 1M elements
 
-# A numpy array with size below this threshold will be copied to the device first.
-# Larger arrays are kept as numpy and handled via slicing (even on single GPU)
+class WsHost:
+    def __init__(self):
+        self.size = 0
+        self.host = empty_pinned((0,), numpy.int8)
+        self.lock = Lock()
+        self.host_lock = Lock()
+
+    def __call__(self, size):
+        with self.lock:
+            if self.size < size:
+                self.host = None
+                self.size = size
+                self.host = empty_pinned((size,), numpy.int8)
+                self.host_lock = Lock()
+                self.host_lock.acquire()
+                return self.host, self.host_lock
+            else:
+                if self.host_lock.acquire(blocking=False):
+                    return self.host, self.host_lock
+        return empty_pinned((size,), numpy.int8), None
+
+
+# The global buffer of the host waorspace of cuTENSORMG. The maximum one will be memorized.  # NOQA
+DEFAULT_WS_HOST = WsHost()
+
+# A numpy array with size below this threshold will be copied to the device first.  # NOQA
 MG_NBYTES_THRESHOLD = 1073741824  # 1GB
-# MG_NBYTES_THRESHOLD = 536870912  # 0.5GB
 
 
 def arrayind(*x):
-    """
-    Determine if arrays are numpy (1) or cupy (0).
-    Returns array with 1 for numpy.ndarray, 0 for cupy.ndarray.
-    """
     return numpy.asarray(
         [(isinstance(ix, numpy.ndarray) + 1 - isinstance(ix, cupy.ndarray)) / 2
          for ix in x])
@@ -210,11 +228,13 @@ def contraction(
     alg: The algorithm to use.
     ws_pref: The workspace preference.
 
-    devices: (Deprecated) Kept for compatibility, not used in newer CuPy versions.
-    ws_device: (Deprecated) Kept for compatibility, not used in newer CuPy versions.
-    ws_host: (Deprecated) Kept for compatibility, not used in newer CuPy versions.
+    devices: cuTENSORMG only. The devices list/number to use.
+    ws_device: cuTENSORMG only. The device buffer for workspace.
+    ws_host: cuTENSORMG only. The host buffer for workspace. If not provied,
+        it will be generated and the biggest one will be preserved for later
+        used.
     issync: Whether to synchronize the devices after contraction.
-    isforceMg: (Deprecated) Kept for compatibility, not used in newer CuPy versions.
+    isforceMg: Whether to force use cuTENSORMG.
     isskipc2r: Whether to skip the complex2real tricks.
     defaulttype: The default memory type for case `c` is constructed.
     '''
@@ -263,99 +283,27 @@ def contraction_try(
     else:
         assert c.ndim == len(indc), 'c.ndim not same as len(indc)'
 
-    # Convert numpy arrays to cupy arrays only if they're small enough
-    # Large arrays are kept as numpy and handled via slicing (even on single GPU)
-    # This preserves the original behavior where slicing was used for memory management
-    try:
-        if isinstance(a, numpy.ndarray) and a.nbytes < MG_NBYTES_THRESHOLD:
-            a = cupy.asarray(a)
-        elif isinstance(a, numpy.ndarray):
-            # Large numpy array - will be handled via slicing
-            pass
-    except cupy.cuda.memory.OutOfMemoryError:
-        # If conversion fails due to OOM, keep as numpy for slicing
-        pass
-    
-    try:
-        if isinstance(b, numpy.ndarray) and b.nbytes < MG_NBYTES_THRESHOLD:
-            b = cupy.asarray(b)
-        elif isinstance(b, numpy.ndarray):
-            # Large numpy array - will be handled via slicing
-            pass
-    except cupy.cuda.memory.OutOfMemoryError:
-        # If conversion fails due to OOM, keep as numpy for slicing
-        pass
-    
-    try:
-        if isinstance(c, numpy.ndarray) and c is not None and c.nbytes < MG_NBYTES_THRESHOLD:
-            c = cupy.asarray(c)
-        elif isinstance(c, numpy.ndarray) and c is not None:
-            # Large numpy array - will be handled via slicing
-            pass
-    except cupy.cuda.memory.OutOfMemoryError:
-        # If conversion fails due to OOM, keep as numpy for slicing
-        pass
+    if isinstance(a, numpy.ndarray) and a.nbytes < MG_NBYTES_THRESHOLD:
+        a = cupy.asarray(a)
+    if isinstance(b, numpy.ndarray) and b.nbytes < MG_NBYTES_THRESHOLD:
+        b = cupy.asarray(b)
 
     opa = getop(opa, a)
     opb = getop(opb, b)
     opc = getop(opc, c)
-    
-    # Check if we have large numpy arrays that need slicing
-    # Large numpy arrays are kept as numpy and handled via slicing (even on single GPU)
-    has_large_numpy = ((isinstance(a, numpy.ndarray) and a.nbytes >= MG_NBYTES_THRESHOLD) or
-                       (isinstance(b, numpy.ndarray) and b.nbytes >= MG_NBYTES_THRESHOLD) or
-                       (isinstance(c, numpy.ndarray) and c is not None and c.nbytes >= MG_NBYTES_THRESHOLD))
-    
+    isMg = isforceMg or (arrayind(a, b, c) == 1).any()
     key = (inda, indb, indc, a.shape, b.shape, c.shape)
     if key in model.keys():
         char, n = model[key]
         contraction_slice(inda, a, indb, b, indc, c, alpha, beta, char, n,
-                          opa, opb, opc, alg, ws_pref)
+                          opa, opb, opc, alg, ws_pref,
+                          devices, ws_device, ws_host, isMg)
         return c
     else:
-        # If we have large numpy arrays, go directly to slicing
-        if has_large_numpy:
-            print('Large numpy arrays detected, using slicing to manage memory...')
-            arrs = [a, b, c]
-            perm = numpy.argsort([numpy.prod(x.shape) if x is not None else 0
-                                  for x in arrs])[::-1]
-            inds = [inda, indb, indc]
-            inds = inds[perm[0]] + inds[perm[1]] + inds[perm[2]]
-            shapes = numpy.hstack([arrs[x].shape if arrs[x] is not None else (0,)
-                                  for x in perm])
-            iters = []
-            for i, char in enumerate(inds):
-                item = (char, shapes[i])
-                if item not in iters:
-                    iters.append(item)
-            for char, shape in iters:
-                n = 2
-                while (shape + n - 1) // n >= 4:
-                    try:
-                        contraction_slice(
-                            inda, a, indb, b, indc, c, alpha, beta,
-                            char, n, opa, opb, opc, alg, ws_pref)
-                        model[key] = (char, n)
-                        print('Slice (%c, %d) successed and saved!' % (
-                            char, n))
-                        return c
-                    except BaseException as e:
-                        print('Slice (%c, %d) failed!:%s' % (
-                            char, n, str(e)))
-                        pass
-                    n += 2
-            # If slicing failed, try regular contraction as last resort
-            try:
-                _contraction(inda, a, indb, b, indc, c, alpha, beta,
-                             opa, opb, opc, alg, ws_pref)
-                return c
-            except BaseException as err:
-                raise err
-        
-        # Try regular contraction first
         try:
             _contraction(inda, a, indb, b, indc, c, alpha, beta,
-                         opa, opb, opc, alg, ws_pref)
+                         opa, opb, opc, alg, ws_pref,
+                         devices, ws_device, ws_host, isMg)
             return c
         except BaseException as err:
             if (isinstance(err, cutensorlib.CuTensorError)
@@ -363,12 +311,11 @@ def contraction_try(
                     or isinstance(err, cupy.cuda.memory.OutOfMemoryError):
                 print('CUTENSOR_ERROR:%s!!! Try to slice...' % str(err))
                 arrs = [a, b, c]
-                perm = numpy.argsort([numpy.prod(x.shape) if x is not None else 0
+                perm = numpy.argsort([numpy.prod(x.shape)
                                       for x in arrs])[::-1]
                 inds = [inda, indb, indc]
                 inds = inds[perm[0]] + inds[perm[1]] + inds[perm[2]]
-                shapes = numpy.hstack([arrs[x].shape if arrs[x] is not None else (0,)
-                                      for x in perm])
+                shapes = numpy.hstack([arrs[x].shape for x in perm])
                 iters = []
                 for i, char in enumerate(inds):
                     item = (char, shapes[i])
@@ -380,7 +327,8 @@ def contraction_try(
                         try:
                             contraction_slice(
                                 inda, a, indb, b, indc, c, alpha, beta,
-                                char, n, opa, opb, opc, alg, ws_pref)
+                                char, n, opa, opb, opc, alg, ws_pref,
+                                devices, ws_device, ws_host, isMg)
                             model[key] = (char, n)
                             print('Slice (%c, %d) successed and saved!' % (
                                 char, n))
@@ -446,141 +394,40 @@ def contraction_slice(
     return c
 
 
-def _contraction_mg(inda, a, indb, b, indc, c, alpha, beta,
-                    opa, opb, opc, alg, ws_pref):
-    '''
-    Multi-GPU contraction using manual tensor splitting and distribution.
-    Strategy: Split along an output-only dimension for best parallelization.
-    '''
-    # Find a dimension that's only in the output (best case for splitting)
-    split_char = None
-    split_dim = None
-    
-    for i, char in enumerate(indc):
-        if char not in inda and char not in indb:
-            split_char = char
-            split_dim = i
-            break
-    
-    # If no output-only dimension, try one that's in output and one input
-    if split_char is None:
-        for i, char in enumerate(indc):
-            in_a = char in inda
-            in_b = char in indb
-            # Prefer dimensions that appear in only one input
-            if (in_a and not in_b) or (in_b and not in_a):
-                split_char = char
-                split_dim = i
-                break
-    
-    # Fallback: use first output dimension
-    if split_char is None and len(indc) > 0:
-        split_char = indc[0]
-        split_dim = 0
-    
-    if split_char is None:
-        # Can't find a good dimension to split, fall back to single GPU
-        return cutensor.contraction(
-            alpha, a, inda, b, indb, beta, c, indc, algo=alg,
-            ws_pref=ws_pref, op_A=opa, op_B=opb, op_C=opc)
-    
-    # Determine splitting strategy
-    split_in_a = split_char in inda
-    split_in_b = split_char in indb
-    
-    # Prepare tensors for distribution
-    if split_in_a:
-        # Split a along the dimension that appears in output
-        a_idx = inda.index(split_char)
-        a_splits = get_slice(a, a_idx, Mg.ngpu)
-        # Broadcast b to all GPUs
-        b_broadcast = Mg.broadcast(b)[0]
-    elif split_in_b:
-        # Split b along the dimension that appears in output
-        b_idx = indb.index(split_char)
-        b_splits = get_slice(b, b_idx, Mg.ngpu)
-        # Broadcast a to all GPUs
-        a_broadcast = Mg.broadcast(a)[0]
-    else:
-        # Output-only dimension: split output, broadcast both inputs
-        a_broadcast = Mg.broadcast(a)[0]
-        b_broadcast = Mg.broadcast(b)[0]
-    
-    # Split the output tensor along the chosen dimension
-    c_splits = get_slice(c, split_dim, Mg.ngpu)
-    
-    # Create contraction tasks
-    def contraction_task(i):
-        with cupy.cuda.Device(Mg.gpus[i]):
-            if split_in_a:
-                ai = a_splits[i]
-                bi = b_broadcast[i]
-            elif split_in_b:
-                ai = a_broadcast[i]
-                bi = b_splits[i]
-            else:
-                ai = a_broadcast[i]
-                bi = b_broadcast[i]
-            
-            ci = c_splits[i]
-            
-            # Perform contraction on this GPU's slice
-            return cutensor.contraction(
-                alpha, ai, inda, bi, indb, beta, ci, indc, algo=alg,
-                ws_pref=ws_pref, op_A=opa, op_B=opb, op_C=opc)
-    
-    # Distribute contractions across GPUs
-    Mg.map(contraction_task, range(Mg.ngpu))
-    
-    # Results are already in c_splits (in-place modification)
-    # Synchronize all GPUs
-    for gpu_id in Mg.gpus:
-        with cupy.cuda.Device(gpu_id):
-            cupy.cuda.Device().synchronize()
-    
-    return c
-
-
 def _contraction(inda, a, indb, b, indc, c, alpha, beta,
-                 opa, opb, opc, alg, ws_pref, use_mg=None):
-    '''
-    Core contraction function using regular cuTENSOR API.
-    Arrays may be numpy or cupy. Numpy arrays will be converted to cupy.
-    
-    use_mg: If True, attempt multi-GPU. If None, auto-detect based on size and available GPUs.
-    '''
-    # Convert numpy arrays to cupy (slices should be small enough now)
-    try:
-        if isinstance(a, numpy.ndarray):
-            a = cupy.asarray(a)
-    except cupy.cuda.memory.OutOfMemoryError:
-        raise  # Re-raise if we still can't allocate
-    
-    try:
-        if isinstance(b, numpy.ndarray):
-            b = cupy.asarray(b)
-    except cupy.cuda.memory.OutOfMemoryError:
-        raise  # Re-raise if we still can't allocate
-    
-    try:
-        if isinstance(c, numpy.ndarray) and c is not None:
-            c = cupy.asarray(c)
-    except cupy.cuda.memory.OutOfMemoryError:
-        raise  # Re-raise if we still can't allocate
-    
-    # Auto-detect if we should use multi-GPU
-    if use_mg is None:
-        total_size = (a.size if hasattr(a, 'size') else 0) + \
-                     (b.size if hasattr(b, 'size') else 0) + \
-                     (c.size if hasattr(c, 'size') and c is not None else 0)
-        use_mg = (Mg.ngpu > 1 and total_size >= MG_SIZE_THRESHOLD and
-                  opa == opb == opc == cutensorlib.OP_IDENTITY)
-        
-      
-    # Use multi-GPU if requested and available
-    if use_mg and Mg.ngpu > 1:
-        return _contraction_mg(inda, a, indb, b, indc, c, alpha, beta,
-                              opa, opb, opc, alg, ws_pref)
+                 opa, opb, opc, alg, ws_pref,
+                 devices, ws_device, ws_host, isMg):
+    if isMg:
+        assert opa == opb and opb == opc and opc == cutensorlib.OP_IDENTITY, \
+            'cutensorMg not support operator'
+        if devices is None:
+            devices = Mg.gpus
+        hostBufSize, deviceBuf = cutensor.contractionMgWorkspace(
+            alpha, a, inda, b, indb, beta, c, indc,
+            ws_pref=ws_pref, devices=devices)
+        if ws_device is None:
+            ws_device = []
+            for size, gid in zip(deviceBuf, devices):
+                with cupy.cuda.Device(gid):
+                    r = cupy.empty((size,), numpy.int8)
+                ws_device.append(r)
+        if ws_host is None:
+            ws_host, ws_lock = DEFAULT_WS_HOST(hostBufSize)
+        else:
+            ws_lock = None
+        # model[('MG', inda, indb, indc, a.shape, b.shape, c.shape,
+        #        a.strides, b.strides, c.strides)] = (
+        #     str(type(a)), str(type(b)), str(type(c)))
+        r = cutensor.contractionMg(
+            alpha, a, inda, b, indb, beta, c, indc, hostBuf=ws_host,
+            ws_pref=ws_pref, deviceBuf=ws_device, devices=devices)
+        for d in devices:
+            cupy.cuda.Device(d).synchronize()
+        if ws_lock is not None:
+            ws_lock.release()
+        # del model[('MG', inda, indb, indc, a.shape, b.shape, c.shape,
+        #            a.strides, b.strides, c.strides)]
+        return r
     else:
         return cutensor.contraction(
             alpha, a, inda, b, indb, beta, c, indc, algo=alg,
@@ -593,12 +440,6 @@ def elementwise_binary(inda, a, indc, c=None, out=None, alpha=True,
     """
         out = opac(alpha * opa(A), gamma * opc(C)). If out is None, c will be modified in-place. `buf` is used to construct the output array if both `c` and `out` equals `None`.
     """
-    # Convert numpy arrays to cupy arrays
-    if isinstance(a, numpy.ndarray):
-        a = cupy.asarray(a)
-    if isinstance(c, numpy.ndarray) and c is not None:
-        c = cupy.asarray(c)
-    
     opa = getop(opa, a)
     opc = getop(opc, c)
     opac = getop(opac, c)
@@ -620,14 +461,6 @@ def elementwise_trinary(
     """
         out = opabc(opab(alpha * opa(A), beta * opb(B)), gamma * opc(C)).  If out is None, c will be modified in-place. `buf` is used to construct the output array if both `c` and `out` equals `None`.
     """
-    # Convert numpy arrays to cupy arrays
-    if isinstance(a, numpy.ndarray):
-        a = cupy.asarray(a)
-    if isinstance(b, numpy.ndarray):
-        b = cupy.asarray(b)
-    if isinstance(c, numpy.ndarray) and c is not None:
-        c = cupy.asarray(c)
-    
     opa = getop(opa, a)
     opb = getop(opb, a)
     opc = getop(opc, c)
@@ -645,87 +478,15 @@ def elementwise_trinary(
         opa, opb, opc, opab, opabc)
 
 
-def _gemm_mg(a, b, c, alpha, beta, buf, transa, transb):
-    '''
-    Multi-GPU matrix multiplication.
-    Strategy: Split matrix a along rows (or columns if transposed) to distribute work.
-    '''
-    # Determine output dimensions
-    if transa == 'N':
-        m, k = a.shape
-    else:
-        k, m = a.shape
-    
-    if transb == 'N':
-        n = b.shape[1]
-    else:
-        n = b.shape[0]
-    
-    if c is None:
-        dtype = numpy.result_type(a, b)
-        c = empty_from_buf(buf, (m, n), dtype, type=MemoryTypeDevice)
-        beta = 0.0
-    
-    # Split a along rows (or columns if transposed)
-    # This splits the output along rows
-    if transa == 'N':
-        a_splits = get_slice(a, 0, Mg.ngpu)  # Split along first dimension (rows)
-        c_splits = get_slice(c, 0, Mg.ngpu)  # Split output along rows
-    else:
-        a_splits = get_slice(a, 1, Mg.ngpu)  # Split along second dimension
-        c_splits = get_slice(c, 0, Mg.ngpu)  # Output still split along rows
-    
-    # Broadcast b to all GPUs
-    b_broadcast = Mg.broadcast(b)[0]
-    
-    # Create gemm tasks
-    def gemm_task(i):
-        with cupy.cuda.Device(Mg.gpus[i]):
-            ai = a_splits[i]
-            bi = b_broadcast[i]
-            ci = c_splits[i]
-            
-            # Use regular gemm (single-GPU) on each slice
-            return gemm(ai, bi, ci, alpha, beta, None, transa, transb, use_mg=False)
-    
-    # Distribute gemm across GPUs
-    Mg.map(gemm_task, range(Mg.ngpu))
-    
-    # Synchronize all GPUs
-    for gpu_id in Mg.gpus:
-        with cupy.cuda.Device(gpu_id):
-            cupy.cuda.Device().synchronize()
-    
-    return c
-
-
 def gemm(a, b, c=None, alpha=True, beta=False,
-         buf=None, transa='N', transb='N', use_mg=None):
+         buf=None, transa='N', transb='N'):
     '''
         c = alpha * a @ b + beta * c. `transa`, `transb` can be `N` for normal, `T` for transpose, `H` for conjugate transpose. `buf` is used to construct the output array if `c` equals `None`.
-        use_mg: If True, attempt multi-GPU. If None, auto-detect based on size and available GPUs.
     '''
     assert a.ndim == b.ndim == 2, 'Only matrix is support for gemm'
-    
-    # Convert numpy arrays to cupy arrays
-    if isinstance(a, numpy.ndarray):
-        a = cupy.asarray(a)
-    if isinstance(b, numpy.ndarray):
-        b = cupy.asarray(b)
-    if isinstance(c, numpy.ndarray) and c is not None:
-        c = cupy.asarray(c)
-    
-    # Auto-detect if we should use multi-GPU
-    if use_mg is None:
-        total_size = a.size + b.size + (c.size if c is not None else 0)
-        use_mg = (Mg.ngpu > 1 and total_size >= MG_SIZE_THRESHOLD and
-                  transa != 'H' and transb != 'H')  # No conjugate transpose for now
-        
-    # Use multi-GPU if requested and available
-    if use_mg and Mg.ngpu > 1:
-        return _gemm_mg(a, b, c, alpha, beta, buf, transa, transb)
-    
-    if a.dtype != b.dtype or not (c is None or c.flags.c_contiguous or c.flags.f_contiguous):
+    if isinstance(a, numpy.ndarray) or isinstance(b, numpy.ndarray) \
+       or a.dtype != b.dtype or isinstance(c, numpy.ndarray) \
+       or not (c is None or c.flags.c_contiguous or c.flags.f_contiguous):
         return contraction(
             'ab' if transa == 'N' else 'ba', a,
             'bc' if transb == 'N' else 'cb', b,
@@ -818,11 +579,6 @@ def svd(a, s=None, u=None, vt=None, jobu='S', jobvt='S', overwrite_a=False,
     `a` can be c-contiguous or f-contiguous.
     '''
     assert a.ndim == 2
-    
-    # Convert numpy array to cupy array if needed
-    if isinstance(a, numpy.ndarray):
-        a = cupy.asarray(a)
-    
     handle = device.get_cusolver_handle()
     istrans = False
     if not overwrite_a:
@@ -929,12 +685,6 @@ def solve_triangular(
     dtype = a.dtype
     if dtype != b.dtype:
         raise ValueError('Incompatible dtypes')
-
-    # Convert numpy arrays to cupy arrays
-    if isinstance(a, numpy.ndarray):
-        a = cupy.asarray(a)
-    if isinstance(b, numpy.ndarray):
-        b = cupy.asarray(b)
 
     if check_finite:
         if a.dtype.kind == 'f' and not cupy.isfinite(a).all():
@@ -1078,7 +828,7 @@ def blas_host(name, x, y=None, a=None):
         kwgs['a'] = a
     if y is not None:
         kwgs['offy'] = 0
-        kwgs['incy'] = y.strides[0] // x.dtype.itemsize
+        kwgs['incy'] = y.strides[0] // y.dtype.itemsize
     for i in range(0, n, INT32MAX):
         s = slice(i, i + INT32MAX)
         _n = len(x[s])
@@ -1119,9 +869,7 @@ def blas2(name, x, y, a=None):
     x0 = ravel(x)
     y0 = ravel(y)
     check1d(x0, y0)
-    arrind = numpy.asarray(
-        [(isinstance(ix, numpy.ndarray) + 1 - isinstance(ix, cupy.ndarray)) / 2
-         for ix in [x0, y0]])
+    arrind = arrayind(x0, y0)
     if (arrind == 1).all():
         blas_host(name, x0, y0, a)
     elif (arrind == 0).all():
@@ -1152,4 +900,3 @@ def swap(x, y):
     '''
     blas2('swap', x, y)
     return x, y
-

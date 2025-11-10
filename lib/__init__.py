@@ -16,8 +16,7 @@
 from byteqc.lib.multigpu import Mg
 from byteqc.lib.array import *
 from byteqc.lib.linalg import contraction, elementwise_binary, elementwise_trinary, \
-    gemm, svd, cholesky, solve_triangular, axpy, swap, scal, copy, \
-    DEFAULT_WS_HOST
+    gemm, svd, cholesky, solve_triangular, axpy, swap, scal, copy #, DEFAULT_WS_HOST
 from byteqc.lib.utils import *
 from byteqc.lib.file import FutureNumpy, FileMp, DatasetMp, \
     DatasetMpWrapper, GroupMp, NumFileProcess
