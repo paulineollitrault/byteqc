@@ -763,8 +763,10 @@ class Int3cCal(Int3cEngine):
                             (ncol, nG, 2), dtype='f8', memptr=pqg.data)
                         gL_T_real = cupy.ndarray(
                             (naux_cart, nG, 2), dtype='f8', memptr=gL_T.data)
-                        blksize = min(
-                            nG, (2**31) // max(naux_cart, ncol) - 1)
+                        # Use 2**31 - 1 to avoid int32 overflow (max int32 is 2**31 - 1)
+                        # Ensure max(naux_cart, ncol) >= 1 to avoid division issues
+                        max_dim = max(1, max(naux_cart, ncol))
+                        blksize = min(nG, max(1, (2**31 - 1) // max_dim - 1))
                         for i in range(0, nG, blksize):
                             s = slice(i, i + blksize)
                             contraction(
